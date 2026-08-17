@@ -76,12 +76,15 @@ struct ApprovalView: View {
             LeashMark(filled: true, tint: kind.color, size: 14)
             LeashWordmark()
             Spacer()
-            if let agent = pending.agent, !agent.isEmpty {
+            if let agent = pending.agent, !agent.isEmpty, !pending.tool.isEmpty {
+                Text("\(agent) · \(pending.tool)")
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(LeashPaint.muted)
+            } else if let agent = pending.agent, !agent.isEmpty {
                 Text(agent)
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundStyle(LeashPaint.muted)
-            }
-            if !pending.tool.isEmpty {
+            } else if !pending.tool.isEmpty {
                 Text(pending.tool)
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
                     .foregroundStyle(LeashPaint.muted)
