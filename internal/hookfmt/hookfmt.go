@@ -5,13 +5,22 @@ import (
 	"strings"
 )
 
-// Event is the subset of Claude Code / Codex hook stdin we care about.
+type Dialect string
+
+const (
+	DialectClaude  Dialect = "claude"
+	DialectCursor  Dialect = "cursor"
+	DialectGeneric Dialect = "generic"
+)
+
+// Event is a normalized pre-tool event from any supported agent.
 type Event struct {
-	SessionID     string         `json:"session_id"`
-	CWD           string         `json:"cwd"`
-	HookEventName string         `json:"hook_event_name"`
-	ToolName      string         `json:"tool_name"`
-	ToolInput     map[string]any `json:"tool_input"`
+	SessionID     string
+	CWD           string
+	HookEventName string
+	ToolName      string
+	ToolInput     map[string]any
+	Dialect       Dialect
 }
 
 func Parse(data []byte) (Event, error) {
@@ -20,37 +29,103 @@ func Parse(data []byte) (Event, error) {
 		return Event{}, err
 	}
 	ev := Event{
-		SessionID:     str(raw["session_id"]),
-		CWD:           str(raw["cwd"]),
-		HookEventName: str(raw["hook_event_name"]),
-		ToolName:      str(raw["tool_name"]),
-	}
-	if ev.HookEventName == "" {
-		ev.HookEventName = str(raw["hookEventName"])
+		SessionID:     firstStr(raw, "session_id", "conversation_id"),
+		CWD:           firstStr(raw, "cwd", "cwd_path"),
+		HookEventName: firstStr(raw, "hook_event_name", "hookEventName"),
+		ToolName:      firstStr(raw, "tool_name", "tool"),
+		Dialect:       detectDialect(raw),
 	}
 	if ev.CWD == "" {
-		ev.CWD = str(raw["cwd_path"])
+		if roots, ok := raw["workspace_roots"].([]any); ok && len(roots) > 0 {
+			ev.CWD, _ = roots[0].(string)
+		}
 	}
+	ev.ToolInput = map[string]any{}
 	switch v := raw["tool_input"].(type) {
 	case map[string]any:
 		ev.ToolInput = v
-	default:
-		ev.ToolInput = map[string]any{}
+	case string:
+		var m map[string]any
+		if json.Unmarshal([]byte(v), &m) == nil {
+			ev.ToolInput = m
+		} else if v != "" {
+			ev.ToolInput["command"] = v
+		}
+	}
+	normalizeCursorShape(raw, &ev)
+	if wd, ok := ev.ToolInput["working_directory"].(string); ok && ev.CWD == "" {
+		ev.CWD = wd
 	}
 	if ev.ToolName == "" {
-		ev.ToolName = str(raw["tool"])
+		ev.ToolName = "Bash"
 	}
 	return ev, nil
 }
 
-func str(v any) string {
-	s, _ := v.(string)
-	return s
+func detectDialect(raw map[string]any) Dialect {
+	if proto, _ := raw["protocol"].(string); strings.EqualFold(proto, "leash") {
+		return DialectGeneric
+	}
+	name := firstStr(raw, "hook_event_name", "hookEventName")
+	switch name {
+	case "preToolUse", "beforeShellExecution", "beforeMCPExecution", "beforeReadFile":
+		return DialectCursor
+	case "pre_tool", "leash.pre_tool":
+		return DialectGeneric
+	case "PreToolUse", "PermissionRequest":
+		return DialectClaude
+	}
+	if raw["cursor_version"] != nil || raw["conversation_id"] != nil {
+		return DialectCursor
+	}
+	return DialectClaude
+}
+
+func normalizeCursorShape(raw map[string]any, ev *Event) {
+	name := strings.ToLower(ev.HookEventName)
+	switch name {
+	case "beforeshellexecution":
+		ev.ToolName = "Bash"
+		if ev.ToolInput["command"] == nil {
+			if cmd := firstStr(raw, "command"); cmd != "" {
+				ev.ToolInput["command"] = cmd
+			}
+		}
+	case "beforereadfile":
+		ev.ToolName = "Read"
+		if p := firstStr(raw, "file_path"); p != "" {
+			ev.ToolInput["file_path"] = p
+		}
+	case "beforemcpexecution":
+		if ev.ToolName == "" {
+			ev.ToolName = firstStr(raw, "tool_name")
+		}
+		if cmd := firstStr(raw, "command"); cmd != "" && ev.ToolInput["command"] == nil {
+			ev.ToolInput["command"] = cmd
+		}
+	}
+	if strings.EqualFold(ev.ToolName, "Shell") {
+		ev.ToolName = "Bash"
+	}
+}
+
+func firstStr(raw map[string]any, keys ...string) string {
+	for _, k := range keys {
+		if s, ok := raw[k].(string); ok && s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 func IsPre(ev Event) bool {
 	n := strings.ToLower(ev.HookEventName)
-	return n == "pretooluse" || n == "permissionrequest" || n == ""
+	switch n {
+	case "pretooluse", "permissionrequest", "beforeshellexecution", "beforemcpexecution", "beforereadfile", "pre_tool", "leash.pre_tool", "":
+		return true
+	default:
+		return false
+	}
 }
 
 func IsPermissionRequest(ev Event) bool {
@@ -65,19 +140,36 @@ const (
 	DecisionKill   Decision = "kill"
 )
 
-// Encode writes the JSON the calling CLI expects on stdout.
 func Encode(ev Event, d Decision, reason string) []byte {
 	if d == DecisionAlways {
 		d = DecisionAllow
 	}
+	switch ev.Dialect {
+	case DialectCursor:
+		return encodeCursor(d, reason)
+	case DialectGeneric:
+		return encodeGeneric(d, reason)
+	default:
+		return encodeClaude(ev, d, reason)
+	}
+}
+
+func SilentAllow(ev Event) []byte {
+	switch ev.Dialect {
+	case DialectGeneric:
+		return encodeGeneric(DecisionAllow, "Allowed by Leash")
+	default:
+		return []byte("{}\n")
+	}
+}
+
+func encodeClaude(ev Event, d Decision, reason string) []byte {
 	if IsPermissionRequest(ev) {
 		behavior := "allow"
 		out := map[string]any{
 			"hookSpecificOutput": map[string]any{
 				"hookEventName": "PermissionRequest",
-				"decision": map[string]any{
-					"behavior": behavior,
-				},
+				"decision":      map[string]any{"behavior": behavior},
 			},
 		}
 		if d == DecisionKill {
@@ -116,7 +208,43 @@ func Encode(ev Event, d Decision, reason string) []byte {
 	return b
 }
 
-// SilentAllow is empty stdout so the CLI uses its normal permission flow.
-func SilentAllow() []byte {
-	return []byte("{}\n")
+func encodeCursor(d Decision, reason string) []byte {
+	perm := "allow"
+	if d == DecisionKill {
+		perm = "deny"
+	}
+	if reason == "" {
+		if perm == "deny" {
+			reason = "Blocked by Leash"
+		} else {
+			reason = "Allowed by Leash"
+		}
+	}
+	out := map[string]any{
+		"permission":    perm,
+		"user_message":  reason,
+		"agent_message": reason,
+	}
+	b, _ := json.Marshal(out)
+	return append(b, '\n')
+}
+
+func encodeGeneric(d Decision, reason string) []byte {
+	dec := "allow"
+	if d == DecisionKill {
+		dec = "deny"
+	}
+	if reason == "" {
+		if dec == "deny" {
+			reason = "Blocked by Leash"
+		} else {
+			reason = "Allowed by Leash"
+		}
+	}
+	out := map[string]any{
+		"decision": dec,
+		"reason":   reason,
+	}
+	b, _ := json.Marshal(out)
+	return append(b, '\n')
 }

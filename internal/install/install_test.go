@@ -35,6 +35,20 @@ func TestInstallAndUninstallClaude(t *testing.T) {
 	if !strings.Contains(string(cfg), "codex_hooks = true") {
 		t.Fatalf("features not enabled: %s", cfg)
 	}
+	cursor, err := os.ReadFile(filepath.Join(home, ".cursor", "hooks.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(cursor), "leash hook") || !strings.Contains(string(cursor), "preToolUse") {
+		t.Fatalf("missing cursor hook: %s", cursor)
+	}
+	plugin, err := os.ReadFile(filepath.Join(home, ".config", "opencode", "plugins", "leash.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(plugin), "/opt/leash/leash") || !strings.Contains(string(plugin), "leash-plugin") {
+		t.Fatalf("missing opencode plugin: %s", plugin)
+	}
 	if err := Install(bin, 540); err != nil {
 		t.Fatal(err)
 	}
@@ -48,5 +62,12 @@ func TestInstallAndUninstallClaude(t *testing.T) {
 	data3, _ := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
 	if strings.Contains(string(data3), "leash hook") {
 		t.Fatalf("still present: %s", data3)
+	}
+	cursor2, _ := os.ReadFile(filepath.Join(home, ".cursor", "hooks.json"))
+	if strings.Contains(string(cursor2), "leash hook") {
+		t.Fatalf("cursor hook still present: %s", cursor2)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".config", "opencode", "plugins", "leash.js")); !os.IsNotExist(err) {
+		t.Fatal("opencode plugin should be removed")
 	}
 }

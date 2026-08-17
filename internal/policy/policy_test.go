@@ -88,6 +88,13 @@ func TestAlwaysAllow(t *testing.T) {
 	}
 }
 
+func TestAssessOpenCodeFilePath(t *testing.T) {
+	a := Assess("read", "/proj", "/proj", map[string]any{"filePath": "/proj/.env"}, nil)
+	if a.Verdict != Ask || a.Kind != "secret" {
+		t.Fatalf("opencode .env: %+v", a)
+	}
+}
+
 func TestSkipSnapshot(t *testing.T) {
 	if !SkipSnapshot("app/node_modules/pkg/index.js") {
 		t.Fatal("should skip node_modules")

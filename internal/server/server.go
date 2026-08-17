@@ -31,6 +31,7 @@ type Server struct {
 	mu       sync.Mutex
 	pending  map[string]*Pending
 	lastKill time.Time
+	recent   []recentDec
 }
 
 type Pending struct {
@@ -259,7 +260,7 @@ func (s *Server) HandleHook(ctx context.Context, body []byte) ([]byte, error) {
 		return nil, err
 	}
 	if !hookfmt.IsPre(ev) {
-		return hookfmt.SilentAllow(), nil
+		return hookfmt.SilentAllow(ev), nil
 	}
 
 	s.mu.Lock()
@@ -282,13 +283,22 @@ func (s *Server) HandleHook(ctx context.Context, body []byte) ([]byte, error) {
 	}
 
 	if a.Verdict == policy.Allow {
-		return hookfmt.SilentAllow(), nil
+		return hookfmt.SilentAllow(ev), nil
+	}
+
+	if d, ok := s.recall(ev, a); ok {
+		if d == hookfmt.DecisionKill {
+			reason := "Blocked by Leash: " + strings.Join(a.Reasons, ", ")
+			return hookfmt.Encode(ev, d, reason), nil
+		}
+		return hookfmt.Encode(ev, d, "Allowed by Leash"), nil
 	}
 
 	dec, err := s.ask(ctx, ev, a)
 	if err != nil {
 		return hookfmt.Encode(ev, hookfmt.DecisionKill, "Leash timed out"), nil
 	}
+	s.remember(ev, a, dec)
 	reason := "Allowed by Leash"
 	if dec == hookfmt.DecisionKill {
 		reason = "Blocked by Leash: " + strings.Join(a.Reasons, ", ")
@@ -344,6 +354,42 @@ func policyTool(tool string) string {
 		return "Bash"
 	}
 	return tool
+}
+
+type recentDec struct {
+	key string
+	at  time.Time
+	d   hookfmt.Decision
+}
+
+func decisionKey(ev hookfmt.Event, a policy.Assessment) string {
+	return ev.CWD + "|" + a.Pattern
+}
+
+func (s *Server) remember(ev hookfmt.Event, a policy.Assessment, d hookfmt.Decision) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.recent = append(s.recent, recentDec{key: decisionKey(ev, a), at: time.Now(), d: d})
+	if len(s.recent) > 20 {
+		s.recent = s.recent[len(s.recent)-20:]
+	}
+}
+
+func (s *Server) recall(ev hookfmt.Event, a policy.Assessment) (hookfmt.Decision, bool) {
+	key := decisionKey(ev, a)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cutoff := time.Now().Add(-3 * time.Second)
+	for i := len(s.recent) - 1; i >= 0; i-- {
+		r := s.recent[i]
+		if r.at.Before(cutoff) {
+			continue
+		}
+		if r.key == key {
+			return r.d, true
+		}
+	}
+	return "", false
 }
 
 func newID() string {

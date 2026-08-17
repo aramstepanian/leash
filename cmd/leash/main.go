@@ -18,7 +18,7 @@ import (
 	"github.com/leashapp/leash/internal/server"
 )
 
-const version = "0.1.0"
+const version = "0.2.0"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -65,9 +65,9 @@ func usage() {
 	fmt.Fprint(os.Stderr, `Leash — seatbelt for coding agents
 
   leash serve              Start the local daemon (127.0.0.1)
-  leash hook               Called by Claude Code / Codex (reads stdin)
-  leash install            Wire hooks into ~/.claude and ~/.codex
-  leash uninstall          Remove those hooks
+  leash hook               Called by any hooked agent (reads stdin JSON)
+  leash install            Wire Cursor, Claude Code, Codex, OpenCode
+  leash uninstall          Remove those hooks / plugin
   leash watch [path]       Folder to protect (default: cwd)
   leash undo               Restore files from the last agent burst
   leash status             Show daemon + pending approval
@@ -134,9 +134,12 @@ func cmdInstall() error {
 		return err
 	}
 	fmt.Println("hooks installed")
+	fmt.Println("  Cursor       ~/.cursor/hooks.json")
 	fmt.Println("  Claude Code  ~/.claude/settings.json")
 	fmt.Println("  Codex        ~/.codex/hooks.json")
+	fmt.Println("  OpenCode     ~/.config/opencode/plugins/leash.js")
 	fmt.Println("then: leash serve   (or open Leash.app)")
+	fmt.Println("custom agent: see docs/INTEGRATION.md")
 	return nil
 }
 

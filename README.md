@@ -2,13 +2,13 @@
 
 Seatbelt for coding agents.
 
-A Mac menu bar app that pops a native **Allow / Always / Kill** sheet when Claude Code or Codex is about to run something dangerous, and can **undo the last burst of file changes**.
+A Mac menu bar app that pops a native **Allow / Always / Kill** sheet when a coding agent is about to run something dangerous, and can **undo the last burst of file changes**.
 
-Local only. No account. No model. You already have the agent — this is the brake.
+Works with **Cursor**, **OpenCode**, **Claude Code**, **Codex**, and any custom agent that can call a hook. Local only. No account. No model.
 
 ## What it does
 
-1. Hooks into Claude Code and Codex (`PreToolUse`).
+1. Installs hooks (or a tiny plugin) into the agents you use.
 2. Safe calls pass through with no UI (`git status`, reads, normal edits).
 3. Dangerous calls wait on a Mac panel: `rm -rf`, `sudo`, `curl | sh`, force-push, `.env`, writes outside the project.
 4. Before a mutating call, Leash snapshots the files it can see.
@@ -27,7 +27,7 @@ Run the **Leash** target. The menu bar icon appears (link / raised hand).
 
 1. **Watch folder…** — pick the repo you vibe-code in.
 2. Leave Leash running.
-3. In a terminal: `claude` or `codex` as usual.
+3. Use Cursor, OpenCode, `claude`, or `codex` as usual.
 4. When something scary is about to run, the sheet appears.
    - **Kill** — Esc or ⌘.
    - **Allow** — Return
@@ -55,7 +55,19 @@ make leash
 ./bin/leash undo
 ```
 
-If the daemon is down, hooks **fail open** (empty `{}`) so Claude/Codex keep working.
+If the daemon is down, hooks **fail open** so agents keep working.
+
+## Agents
+
+| Agent | Install target |
+|---|---|
+| Cursor | `~/.cursor/hooks.json` |
+| OpenCode | `~/.config/opencode/plugins/leash.js` |
+| Claude Code | `~/.claude/settings.json` |
+| Codex | `~/.codex/hooks.json` |
+| Custom / work agent | [docs/INTEGRATION.md](docs/INTEGRATION.md) |
+
+Home-grown agents: POST the same JSON to `http://127.0.0.1:17332/v1/hook` or spawn `leash hook`. That is the path for a private work agent without forking Leash.
 
 ## What gets a prompt
 
@@ -74,7 +86,8 @@ cmd/leash/           CLI + daemon
 internal/policy/     allow vs ask
 internal/burst/      file snapshot + undo
 internal/server/     localhost HTTP
-internal/install/    ~/.claude + ~/.codex hooks
+internal/install/    Cursor, Claude, Codex, OpenCode wiring
+docs/INTEGRATION.md  protocol for any other agent
 macos/Leash/         SwiftUI menu bar + approval panel
 ```
 
@@ -92,4 +105,4 @@ Caption: *Seatbelt for coding agents. Local. Allow / Kill / Undo.*
 
 - Codex hooks are opt-in (`codex_hooks = true` in `~/.codex/config.toml`). Leash adds that line. You may still need `/hooks` in Codex to trust the command.
 - Not a sandbox. The agent still runs as you. This is an interrupt + rewind, not a VM.
-- v1 does not parse OpenCode yet.
+- OpenCode loads `~/.config/opencode/plugins/` automatically; restart OpenCode after `leash install`.

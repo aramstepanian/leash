@@ -174,13 +174,20 @@ func alwaysKey(tool, summary string) string {
 
 func normalizeTool(tool string) string {
 	t := strings.TrimSpace(tool)
+	low := strings.ToLower(t)
+	if strings.HasPrefix(low, "mcp:") {
+		t = strings.TrimSpace(t[4:])
+		low = strings.ToLower(t)
+	}
 	switch {
-	case strings.EqualFold(t, "Bash"), strings.EqualFold(t, "Shell"), strings.EqualFold(t, "BashTool"), strings.EqualFold(t, "PowerShell"):
+	case low == "bash" || low == "shell" || low == "bashtool" || low == "powershell" || strings.Contains(low, "bash") || strings.Contains(low, "shell"):
 		return "Bash"
-	case strings.EqualFold(t, "apply_patch"), strings.EqualFold(t, "ApplyPatch"):
+	case low == "apply_patch" || low == "applypatch" || low == "edit" || low == "multiedit" || low == "notebookedit" || low == "str_replace" || low == "strreplace":
 		return "Edit"
-	case strings.Contains(strings.ToLower(t), "bash"), strings.Contains(strings.ToLower(t), "shell"):
-		return "Bash"
+	case low == "write" || low == "delete" || low == "remove":
+		return "Write"
+	case low == "read" || low == "readfile" || low == "read_file":
+		return "Read"
 	default:
 		return t
 	}
@@ -217,6 +224,9 @@ func CommandSummary(tool string, input map[string]any) string {
 	if s, ok := stringVal(input["file_path"]); ok && s != "" {
 		return s
 	}
+	if s, ok := stringVal(input["filePath"]); ok && s != "" {
+		return s
+	}
 	if s, ok := stringVal(input["path"]); ok && s != "" {
 		return s
 	}
@@ -226,7 +236,7 @@ func CommandSummary(tool string, input map[string]any) string {
 func Paths(tool, cwd string, input map[string]any) []string {
 	var out []string
 	if input != nil {
-		for _, k := range []string{"file_path", "path", "target_file", "notebook_path"} {
+		for _, k := range []string{"file_path", "path", "target_file", "notebook_path", "filePath", "targetFile"} {
 			if s, ok := stringVal(input[k]); ok && s != "" {
 				out = append(out, abs(cwd, s))
 			}

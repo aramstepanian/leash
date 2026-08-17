@@ -42,6 +42,10 @@ struct MenuBarView: View {
             Button("Install Claude / Codex hooks") {
                 Task { await app.installHooks() }
             }
+            Text("Cursor, OpenCode, Claude, Codex")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 12)
             Button("Quit Leash") {
                 NSApplication.shared.terminate(nil)
             }

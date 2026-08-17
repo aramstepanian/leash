@@ -60,6 +60,71 @@ func TestKillDangerous(t *testing.T) {
 	}
 }
 
+func TestCursorDialectDeny(t *testing.T) {
+	s := New(config.File{Token: "t", WatchRoot: "/proj"})
+	s.Auto = func(policy.Assessment) hookfmt.Decision { return hookfmt.DecisionKill }
+	out, err := s.HandleHook(context.Background(), []byte(`{
+		"hook_event_name": "beforeShellExecution",
+		"command": "rm -rf ./dist",
+		"cwd": "/proj"
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if parsed["permission"] != "deny" {
+		t.Fatalf("%s", out)
+	}
+}
+
+func TestGenericProtocolDeny(t *testing.T) {
+	s := New(config.File{Token: "t", WatchRoot: "/proj"})
+	s.Auto = func(policy.Assessment) hookfmt.Decision { return hookfmt.DecisionKill }
+	out, err := s.HandleHook(context.Background(), []byte(`{
+		"protocol": "leash",
+		"hook_event_name": "pre_tool",
+		"cwd": "/proj",
+		"tool_name": "bash",
+		"tool_input": {"command": "sudo rm -rf /"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(out, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if parsed["decision"] != "deny" {
+		t.Fatalf("%s", out)
+	}
+}
+
+func TestDedupeDoubleHook(t *testing.T) {
+	s := New(config.File{Token: "t", WatchRoot: "/proj"})
+	calls := 0
+	s.Auto = func(policy.Assessment) hookfmt.Decision {
+		calls++
+		return hookfmt.DecisionKill
+	}
+	body := []byte(`{
+		"hook_event_name": "preToolUse",
+		"tool_name": "Shell",
+		"tool_input": {"command": "rm -rf ./dist", "working_directory": "/proj"}
+	}`)
+	if _, err := s.HandleHook(context.Background(), body); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.HandleHook(context.Background(), body); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("asked %d times, want 1", calls)
+	}
+}
+
 func TestUndoAfterWrite(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "app.txt")
