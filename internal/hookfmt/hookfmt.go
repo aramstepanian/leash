@@ -2,6 +2,7 @@ package hookfmt
 
 import (
 	"encoding/json"
+	"maps"
 	"strings"
 )
 
@@ -43,7 +44,7 @@ func Parse(data []byte) (Event, error) {
 	ev.ToolInput = map[string]any{}
 	switch v := raw["tool_input"].(type) {
 	case map[string]any:
-		ev.ToolInput = v
+		ev.ToolInput = maps.Clone(v)
 	case string:
 		var m map[string]any
 		if json.Unmarshal([]byte(v), &m) == nil {
@@ -53,6 +54,7 @@ func Parse(data []byte) (Event, error) {
 		}
 	}
 	normalizeCursorShape(raw, &ev)
+	stripSecrets(ev.ToolInput)
 	if wd, ok := ev.ToolInput["working_directory"].(string); ok && ev.CWD == "" {
 		ev.CWD = wd
 	}
@@ -107,6 +109,17 @@ func normalizeCursorShape(raw map[string]any, ev *Event) {
 	if strings.EqualFold(ev.ToolName, "Shell") {
 		ev.ToolName = "Bash"
 	}
+}
+
+func stripSecrets(input map[string]any) {
+	if input == nil {
+		return
+	}
+	delete(input, "content")
+	delete(input, "contents")
+	delete(input, "new_string")
+	delete(input, "old_string")
+	delete(input, "attachments")
 }
 
 func firstStr(raw map[string]any, keys ...string) string {

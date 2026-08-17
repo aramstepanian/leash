@@ -2,15 +2,17 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
-	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/leashapp/leash/internal/config"
@@ -18,7 +20,10 @@ import (
 	"github.com/leashapp/leash/internal/server"
 )
 
-const version = "0.2.0"
+const (
+	version     = "0.3.0"
+	maxHookBody = 1 << 20
+)
 
 func main() {
 	if len(os.Args) < 2 {
@@ -84,27 +89,56 @@ func cmdServe() error {
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, nil)))
 	s := server.New(cfg)
-	return s.ListenAndServe()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- s.ListenAndServe()
+	}()
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case err := <-errCh:
+		return err
+	case <-s.Ready():
+	}
+
+	select {
+	case err := <-errCh:
+		return err
+	case sig := <-sigs:
+		slog.Info("shutting down", "signal", sig.String())
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.Shutdown(ctx); err != nil {
+			return err
+		}
+		return <-errCh
+	}
 }
 
 func cmdHook() error {
-	in, err := io.ReadAll(os.Stdin)
+	in, err := io.ReadAll(io.LimitReader(os.Stdin, maxHookBody+1))
 	if err != nil {
-		return err
+		return failOpen("could not read hook stdin, allowing tool")
+	}
+	if len(in) > maxHookBody {
+		return failOpen("hook payload too large, allowing tool")
 	}
 	cfg, err := config.Load()
 	if err != nil {
-		return failOpen()
+		return failOpen("daemon unavailable, allowing tool")
 	}
-	if !server.DaemonRunning(cfg.Port) {
-		return failOpen()
+	if cfg.Token == "" || !server.DaemonRunning(cfg.Port) {
+		return failOpen("daemon unavailable, allowing tool")
 	}
 	out, code, err := server.PostHook(cfg.Port, cfg.Token, in, 9*time.Minute)
 	if err != nil {
-		return failOpen()
+		return failOpen("daemon unavailable, allowing tool")
 	}
 	if code != 200 {
-		return failOpen()
+		return failOpen("daemon unavailable, allowing tool")
 	}
 	os.Stdout.Write(out)
 	if len(out) > 0 && out[len(out)-1] != '\n' {
@@ -113,7 +147,8 @@ func cmdHook() error {
 	return nil
 }
 
-func failOpen() error {
+func failOpen(msg string) error {
+	fmt.Fprintln(os.Stderr, "leash:", msg)
 	fmt.Fprint(os.Stdout, "{}\n")
 	return nil
 }
@@ -126,9 +161,6 @@ func cmdInstall() error {
 	bin, err = filepath.EvalSymlinks(bin)
 	if err != nil {
 		bin, _ = os.Executable()
-	}
-	if strings.ContainsAny(bin, " \t") {
-		bin = strconv.Quote(bin)
 	}
 	if err := install.Install(bin, 540); err != nil {
 		return err
@@ -260,12 +292,13 @@ func rpc(method, path string, body any, dest any) error {
 	}
 	req.Header.Set("Authorization", "Bearer "+cfg.Token)
 	req.Header.Set("Content-Type", "application/json")
-	res, err := http.DefaultClient.Do(req)
+	client := &http.Client{Timeout: 30 * time.Second}
+	res, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("daemon not running (%w)", err)
 	}
 	defer res.Body.Close()
-	data, _ := io.ReadAll(res.Body)
+	data, _ := io.ReadAll(io.LimitReader(res.Body, maxHookBody))
 	if res.StatusCode >= 400 {
 		return fmt.Errorf("%s", strings.TrimSpace(string(data)))
 	}

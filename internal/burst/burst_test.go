@@ -48,6 +48,76 @@ func TestTouchAndUndo(t *testing.T) {
 	}
 }
 
+func TestRestoreDoesNotFollowSymlink(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "a.txt")
+	if err := os.WriteFile(target, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "evil")
+	if err := os.WriteFile(outside, []byte("secret"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store := NewStore(time.Minute)
+	b := store.Begin(root, "b1")
+	b.Touch([]string{target})
+
+	if err := os.Remove(target); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, target); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := store.Undo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("restored %d", n)
+	}
+	got, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "old" {
+		t.Fatalf("dest=%q", got)
+	}
+	info, err := os.Lstat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Fatal("restore left a symlink")
+	}
+	evil, _ := os.ReadFile(outside)
+	if string(evil) != "secret" {
+		t.Fatalf("wrote through symlink: %q", evil)
+	}
+}
+
+func TestBurstIdleUsesLastTouch(t *testing.T) {
+	root := t.TempDir()
+	f := filepath.Join(root, "a.txt")
+	if err := os.WriteFile(f, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(80 * time.Millisecond)
+	b1 := store.Begin(root, "1")
+	time.Sleep(40 * time.Millisecond)
+	b1.Touch([]string{f})
+	b2 := store.Begin(root, "2")
+	if b1 != b2 {
+		t.Fatal("touch should extend the active burst")
+	}
+	time.Sleep(100 * time.Millisecond)
+	b3 := store.Begin(root, "3")
+	if b3 == b2 {
+		t.Fatal("idle after last touch should start a new burst")
+	}
+}
+
 func TestSkipNodeModules(t *testing.T) {
 	root := t.TempDir()
 	p := filepath.Join(root, "node_modules", "pkg", "index.js")

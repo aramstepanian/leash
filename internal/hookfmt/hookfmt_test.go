@@ -111,3 +111,30 @@ func TestEncodeCodexPermission(t *testing.T) {
 		t.Fatalf("%v", d)
 	}
 }
+
+func TestStripSecretsFromToolInput(t *testing.T) {
+	raw := []byte(`{
+		"hook_event_name": "preToolUse",
+		"tool_name": "Read",
+		"tool_input": {
+			"file_path": "/proj/.env",
+			"content": "SECRET=1",
+			"contents": "SECRET=1",
+			"new_string": "nope",
+			"old_string": "nope",
+			"attachments": [{"data": "x"}]
+		}
+	}`)
+	ev, err := Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, k := range []string{"content", "contents", "new_string", "old_string", "attachments"} {
+		if _, ok := ev.ToolInput[k]; ok {
+			t.Fatalf("secret field %s still present: %+v", k, ev.ToolInput)
+		}
+	}
+	if ev.ToolInput["file_path"] != "/proj/.env" {
+		t.Fatalf("path stripped: %+v", ev.ToolInput)
+	}
+}

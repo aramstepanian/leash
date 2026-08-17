@@ -6,6 +6,7 @@ leash:
 
 test:
 	go test ./...
+	go test -race ./...
 
 install: leash
 	install -m 755 bin/leash "$(HOME)/.leash/bin/leash"

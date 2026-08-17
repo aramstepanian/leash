@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
-)
 
-const marker = "leash hook"
+	"github.com/leashapp/leash/internal/atomicfile"
+)
 
 func ClaudeSettingsPath() string {
 	return filepath.Join(home(), ".claude", "settings.json")
@@ -86,7 +87,7 @@ func mergeClaude(bin string, timeoutSec int) error {
 		"hooks": []any{
 			map[string]any{
 				"type":    "command",
-				"command": bin + " hook",
+				"command": hookCommand(bin),
 				"timeout": timeoutSec,
 			},
 		},
@@ -120,7 +121,7 @@ func mergeCodex(bin string, timeoutSec int) error {
 		hooks = map[string]any{}
 		root["hooks"] = hooks
 	}
-	cmd := bin + " hook"
+	cmd := hookCommand(bin)
 	entry := map[string]any{
 		"matcher": "Bash",
 		"hooks": []any{
@@ -184,9 +185,20 @@ func enableCodexHooks() error {
 	block := "\n[features]\ncodex_hooks = true\n"
 	if strings.Contains(s, "[features]") {
 		s = strings.Replace(s, "[features]", "[features]\ncodex_hooks = true", 1)
-		return os.WriteFile(path, []byte(s), 0o644)
+		return atomicfile.WriteFile(path, []byte(s), 0o644)
 	}
-	return os.WriteFile(path, []byte(s+block), 0o644)
+	return atomicfile.WriteFile(path, []byte(s+block), 0o644)
+}
+
+func hookCommand(bin string) string {
+	return strconv.Quote(bin) + " hook"
+}
+
+func isLeashCommand(cmd string) bool {
+	if strings.Contains(cmd, "leash hook") {
+		return true
+	}
+	return strings.Contains(strings.ToLower(cmd), "leash") && strings.HasSuffix(strings.TrimSpace(cmd), " hook")
 }
 
 func upsertGroup(groups []any, entry map[string]any) []any {
@@ -218,7 +230,7 @@ func groupHasMarker(g map[string]any) bool {
 			continue
 		}
 		cmd, _ := hm["command"].(string)
-		if strings.Contains(cmd, marker) {
+		if isLeashCommand(cmd) {
 			return true
 		}
 	}
@@ -249,7 +261,7 @@ func mergeCursor(bin string, timeoutSec int) error {
 		root["hooks"] = hooks
 	}
 	entry := map[string]any{
-		"command": bin + " hook",
+		"command": hookCommand(bin),
 		"timeout": timeoutSec,
 	}
 	for _, ev := range []string{"preToolUse", "beforeShellExecution"} {
@@ -287,7 +299,7 @@ func filterCommands(list []any) []any {
 			continue
 		}
 		cmd, _ := gm["command"].(string)
-		if strings.Contains(cmd, marker) {
+		if isLeashCommand(cmd) {
 			continue
 		}
 		out = append(out, g)
@@ -301,7 +313,7 @@ func writeOpenCodePlugin(bin string) error {
 		return err
 	}
 	body := strings.ReplaceAll(openCodePlugin, "__LEASH_BIN__", escapeJS(bin))
-	return os.WriteFile(path, []byte(body), 0o644)
+	return atomicfile.WriteFile(path, []byte(body), 0o644)
 }
 
 func removeOpenCodePlugin() error {
@@ -402,5 +414,5 @@ func writeJSON(path string, root map[string]any) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(data, '\n'), 0o644)
+	return atomicfile.WriteFile(path, append(data, '\n'), 0o644)
 }

@@ -227,3 +227,55 @@ func TestHTTPAuthAndDecision(t *testing.T) {
 		t.Fatalf("got %s", out)
 	}
 }
+
+func TestEmptyTokenDenied(t *testing.T) {
+	s := New(config.File{Token: "", WatchRoot: "/proj", Port: 1})
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/state", s.auth(s.handleState))
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+
+	req, _ := http.NewRequest(http.MethodGet, ts.URL+"/v1/state", nil)
+	req.Header.Set("Authorization", "Bearer anything")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != 401 {
+		t.Fatalf("empty token must deny, got %d", res.StatusCode)
+	}
+}
+
+func TestWatchMustBeDirectory(t *testing.T) {
+	t.Setenv("LEASH_HOME", t.TempDir())
+	s := New(config.File{Token: "secret", Port: 1})
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/watch", s.auth(s.handleWatch))
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/watch", bytes.NewReader([]byte(`{"path":"/no/such/dir"}`)))
+	req.Header.Set("Authorization", "Bearer secret")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != 400 {
+		t.Fatalf("missing dir status %d", res.StatusCode)
+	}
+
+	root := t.TempDir()
+	body, _ := json.Marshal(map[string]string{"path": root})
+	req, _ = http.NewRequest(http.MethodPost, ts.URL+"/v1/watch", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer secret")
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != 200 {
+		t.Fatalf("real dir status %d", res.StatusCode)
+	}
+}

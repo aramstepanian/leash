@@ -1,25 +1,47 @@
 import Foundation
 
+struct LeashConfig {
+    var port: Int
+    var token: String
+
+    static func load() -> LeashConfig {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let url = home.appendingPathComponent(".leash/config.json")
+        guard let data = try? Data(contentsOf: url),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return LeashConfig(port: 17332, token: "")
+        }
+        let port: Int
+        if let n = obj["port"] as? Int {
+            port = n
+        } else if let n = obj["port"] as? NSNumber {
+            port = n.intValue
+        } else {
+            port = 17332
+        }
+        return LeashConfig(port: port == 0 ? 17332 : port, token: obj["token"] as? String ?? "")
+    }
+}
+
 struct DaemonClient {
+    private var config: LeashConfig { LeashConfig.load() }
+
     private var base: URL {
-        URL(string: "http://127.0.0.1:17332")!
+        URL(string: "http://127.0.0.1:\(config.port)")!
     }
 
-    private var token: String {
-        tokenFromConfig() ?? ""
-    }
+    private var token: String { config.token }
 
-    func reachable() -> Bool {
+    func reachable() async -> Bool {
         var req = URLRequest(url: base.appendingPathComponent("v1/health"))
         req.timeoutInterval = 0.4
-        let sem = DispatchSemaphore(value: 0)
-        var ok = false
-        URLSession.shared.dataTask(with: req) { _, res, _ in
-            ok = (res as? HTTPURLResponse)?.statusCode == 200
-            sem.signal()
-        }.resume()
-        _ = sem.wait(timeout: .now() + 0.5)
-        return ok
+        do {
+            let (_, res) = try await URLSession.shared.data(for: req)
+            return (res as? HTTPURLResponse)?.statusCode == 200
+        } catch {
+            return false
+        }
     }
 
     func state() async throws -> LeashState {
@@ -68,14 +90,4 @@ struct DaemonClient {
             throw URLError(.badServerResponse)
         }
     }
-}
-
-func tokenFromConfig() -> String? {
-    let home = FileManager.default.homeDirectoryForCurrentUser
-    let url = home.appendingPathComponent(".leash/config.json")
-    guard let data = try? Data(contentsOf: url),
-          let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-          let token = obj["token"] as? String
-    else { return nil }
-    return token
 }

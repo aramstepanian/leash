@@ -28,7 +28,9 @@ final class AppModel: ObservableObject {
 
     func stop() {
         timer?.invalidate()
+        timer = nil
         process?.terminate()
+        process = nil
     }
 
     func refresh() async {
@@ -107,14 +109,14 @@ final class AppModel: ObservableObject {
     }
 
     private func bootstrap() async {
-        if client.reachable() {
+        if await client.reachable() {
             await refresh()
             return
         }
         launchHelper()
         for _ in 0 ..< 20 {
             try? await Task.sleep(nanoseconds: 150_000_000)
-            if client.reachable() {
+            if await client.reachable() {
                 await refresh()
                 return
             }

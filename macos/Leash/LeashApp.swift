@@ -3,12 +3,17 @@ import SwiftUI
 
 @main
 struct LeashApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @StateObject private var app = AppModel()
 
     var body: some Scene {
         MenuBarExtra {
             MenuBarView()
                 .environmentObject(app)
+                .onAppear {
+                    delegate.model = app
+                    app.start()
+                }
         } label: {
             MenuBarIcon(status: app.state.status, hasPending: app.state.pending != nil)
         }
@@ -22,6 +27,15 @@ struct LeashApp: App {
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
         .defaultPosition(.center)
+    }
+}
+
+@MainActor
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    var model: AppModel?
+
+    func applicationWillTerminate(_ notification: Notification) {
+        model?.stop()
     }
 }
 

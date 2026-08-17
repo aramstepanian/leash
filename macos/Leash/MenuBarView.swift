@@ -39,7 +39,7 @@ struct MenuBarView: View {
                     .padding(.horizontal, 12)
             }
             Divider()
-            Button("Install Claude / Codex hooks") {
+            Button("Install agent hooks") {
                 Task { await app.installHooks() }
             }
             Text("Cursor, OpenCode, Claude, Codex")

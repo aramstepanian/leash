@@ -1,24 +1,35 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/leashapp/leash/internal/burst"
 	"github.com/leashapp/leash/internal/config"
 	"github.com/leashapp/leash/internal/hookfmt"
 	"github.com/leashapp/leash/internal/policy"
+)
+
+const (
+	maxHookBody = 1 << 20
+	maxPending  = 32
+	maxAlways   = 200
 )
 
 type Server struct {
@@ -28,10 +39,13 @@ type Server struct {
 	Log        *slog.Logger
 	Auto       func(policy.Assessment) hookfmt.Decision // tests only
 
-	mu       sync.Mutex
-	pending  map[string]*Pending
-	lastKill time.Time
-	recent   []recentDec
+	mu        sync.Mutex
+	pending   map[string]*Pending
+	lastKill  time.Time
+	recent    []recentDec
+	http      *http.Server
+	ready     chan struct{}
+	readyOnce sync.Once
 }
 
 type Pending struct {
@@ -71,12 +85,25 @@ func New(cfg config.File) *Server {
 		AskTimeout: 8 * time.Minute,
 		Log:        slog.Default(),
 		pending:    map[string]*Pending{},
+		ready:      make(chan struct{}),
 	}
+}
+
+func (s *Server) Ready() <-chan struct{} {
+	if s.ready == nil {
+		ch := make(chan struct{})
+		close(ch)
+		return ch
+	}
+	return s.ready
 }
 
 func (s *Server) ListenAndServe() error {
 	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", s.Cfg.Port))
 	if err != nil {
+		if isAddrInUse(err) {
+			return fmt.Errorf("port %d already in use — is Leash already running?", s.Cfg.Port)
+		}
 		return err
 	}
 	mux := http.NewServeMux()
@@ -86,9 +113,40 @@ func (s *Server) ListenAndServe() error {
 	mux.HandleFunc("POST /v1/decision", s.auth(s.handleDecision))
 	mux.HandleFunc("POST /v1/watch", s.auth(s.handleWatch))
 	mux.HandleFunc("POST /v1/undo", s.auth(s.handleUndo))
-	srv := &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+	srv := &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      10 * time.Minute,
+		MaxHeaderBytes:    16 << 10,
+	}
+	s.mu.Lock()
+	s.http = srv
+	s.mu.Unlock()
+	s.readyOnce.Do(func() {
+		if s.ready != nil {
+			close(s.ready)
+		}
+	})
 	s.Log.Info("leash listening", "addr", ln.Addr().String())
-	return srv.Serve(ln)
+	err = srv.Serve(ln)
+	if errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
+}
+
+func (s *Server) Shutdown(ctx context.Context) error {
+	s.mu.Lock()
+	srv := s.http
+	s.mu.Unlock()
+	if srv == nil {
+		return nil
+	}
+	return srv.Shutdown(ctx)
+}
+
+func isAddrInUse(err error) bool {
+	return errors.Is(err, syscall.EADDRINUSE)
 }
 
 func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
@@ -97,12 +155,25 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 		if got == "" {
 			got = r.Header.Get("X-Leash-Token")
 		}
-		if s.Cfg.Token != "" && got != s.Cfg.Token {
+		if !tokenOK(got, s.Cfg.Token) {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		next(w, r)
 	}
+}
+
+func tokenOK(got, want string) bool {
+	if want == "" {
+		return false
+	}
+	gb := []byte(got)
+	wb := []byte(want)
+	if len(gb) != len(wb) {
+		_ = subtle.ConstantTimeCompare(wb, wb)
+		return false
+	}
+	return subtle.ConstantTimeCompare(gb, wb) == 1
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -130,11 +201,10 @@ func (s *Server) Snapshot() State {
 		t := s.lastKill.UTC().Truncate(time.Second)
 		st.LastKill = &t
 	}
-	for _, p := range s.pending {
+	if p := oldestPending(s.pending); p != nil {
 		cp := *p
 		st.Pending = &cp
 		st.Status = "waiting"
-		break
 	}
 	if b := s.Bursts.Last(); b != nil {
 		st.Burst = &struct {
@@ -150,18 +220,47 @@ func (s *Server) Snapshot() State {
 	return st
 }
 
+func oldestPending(m map[string]*Pending) *Pending {
+	var oldest *Pending
+	for _, p := range m {
+		if oldest == nil || p.Created.Before(oldest.Created) {
+			oldest = p
+		}
+	}
+	return oldest
+}
+
 func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Path string `json:"path"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 32<<10)).Decode(&body); err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
+	path := strings.TrimSpace(body.Path)
+	if path == "" {
+		http.Error(w, "watch path must be an existing directory", 400)
+		return
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		http.Error(w, "watch path must be an existing directory", 400)
+		return
+	}
+	info, err := os.Stat(abs)
+	if err != nil || !info.IsDir() {
+		http.Error(w, "watch path must be an existing directory", 400)
+		return
+	}
 	s.mu.Lock()
-	s.Cfg.WatchRoot = body.Path
+	s.Cfg.WatchRoot = abs
+	cfg := s.Cfg
 	s.mu.Unlock()
-	_ = config.Save(s.Cfg)
+	if err := config.Save(cfg); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
 	writeJSON(w, s.Snapshot())
 }
 
@@ -179,7 +278,7 @@ func (s *Server) handleDecision(w http.ResponseWriter, r *http.Request) {
 		ID     string `json:"id"`
 		Action string `json:"action"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	if err := json.NewDecoder(io.LimitReader(r.Body, 32<<10)).Decode(&body); err != nil {
 		http.Error(w, err.Error(), 400)
 		return
 	}
@@ -211,6 +310,9 @@ func (s *Server) Resolve(id string, d hookfmt.Decision) error {
 			Tool:    p.Tool,
 			Pattern: alwaysPattern(p),
 		})
+		if len(s.Cfg.AlwaysAllow) > maxAlways {
+			s.Cfg.AlwaysAllow = s.Cfg.AlwaysAllow[len(s.Cfg.AlwaysAllow)-maxAlways:]
+		}
 		cfg := s.Cfg
 		s.mu.Unlock()
 		_ = config.Save(cfg)
@@ -230,7 +332,6 @@ func (s *Server) Resolve(id string, d hookfmt.Decision) error {
 
 func alwaysPattern(p *Pending) string {
 	if p.assessment.Pattern != "" {
-		// store command/path only
 		_, rest, ok := strings.Cut(p.assessment.Pattern, ":")
 		if ok {
 			return rest
@@ -240,19 +341,22 @@ func alwaysPattern(p *Pending) string {
 }
 
 func (s *Server) handleHook(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxHookBody)
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		http.Error(w, err.Error(), 400)
+		http.Error(w, "request too large or unreadable", 400)
 		return
 	}
 	out, err := s.HandleHook(r.Context(), body)
 	if err != nil {
-		http.Error(w, err.Error(), 500)
+		http.Error(w, "invalid hook payload", 400)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(out)
+	_, _ = w.Write(out)
 }
+
+var errTooManyPending = errors.New("too many pending approvals")
 
 func (s *Server) HandleHook(ctx context.Context, body []byte) ([]byte, error) {
 	ev, err := hookfmt.Parse(body)
@@ -262,6 +366,7 @@ func (s *Server) HandleHook(ctx context.Context, body []byte) ([]byte, error) {
 	if !hookfmt.IsPre(ev) {
 		return hookfmt.SilentAllow(ev), nil
 	}
+	s.Bursts.CloseIfIdle()
 
 	s.mu.Lock()
 	watch := s.Cfg.WatchRoot
@@ -272,6 +377,9 @@ func (s *Server) HandleHook(ctx context.Context, body []byte) ([]byte, error) {
 	}
 
 	a := policy.Assess(ev.ToolName, ev.CWD, watch, ev.ToolInput, always)
+	if len(a.Detail) > 8000 {
+		a.Detail = a.Detail[:8000] + "…"
+	}
 	root := watch
 	if root == "" {
 		root = ev.CWD
@@ -296,7 +404,11 @@ func (s *Server) HandleHook(ctx context.Context, body []byte) ([]byte, error) {
 
 	dec, err := s.ask(ctx, ev, a)
 	if err != nil {
-		return hookfmt.Encode(ev, hookfmt.DecisionKill, "Leash timed out"), nil
+		reason := "Leash timed out"
+		if errors.Is(err, errTooManyPending) {
+			reason = "Leash is busy"
+		}
+		return hookfmt.Encode(ev, hookfmt.DecisionKill, reason), nil
 	}
 	s.remember(ev, a, dec)
 	reason := "Allowed by Leash"
@@ -328,6 +440,10 @@ func (s *Server) ask(ctx context.Context, ev hookfmt.Event, a policy.Assessment)
 		result:     make(chan hookfmt.Decision, 1),
 	}
 	s.mu.Lock()
+	if len(s.pending) >= maxPending {
+		s.mu.Unlock()
+		return hookfmt.DecisionKill, errTooManyPending
+	}
 	s.pending[p.ID] = p
 	s.mu.Unlock()
 
@@ -405,19 +521,11 @@ func writeJSON(w http.ResponseWriter, v any) {
 	_ = enc.Encode(v)
 }
 
-func ClientToken() (port int, token string, err error) {
-	f, err := config.Load()
-	if err != nil {
-		return 0, "", err
-	}
-	return f.Port, f.Token, nil
-}
-
 func PostHook(port int, token string, body []byte, timeout time.Duration) ([]byte, int, error) {
 	if timeout <= 0 {
 		timeout = 9 * time.Minute
 	}
-	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/v1/hook", port), strings.NewReader(string(body)))
+	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/v1/hook", port), bytes.NewReader(body))
 	if err != nil {
 		return nil, 0, err
 	}
@@ -429,19 +537,16 @@ func PostHook(port int, token string, body []byte, timeout time.Duration) ([]byt
 		return nil, 0, err
 	}
 	defer res.Body.Close()
-	data, _ := io.ReadAll(res.Body)
+	data, _ := io.ReadAll(io.LimitReader(res.Body, maxHookBody))
 	return data, res.StatusCode, nil
 }
 
 func DaemonRunning(port int) bool {
-	res, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/v1/health", port))
+	client := &http.Client{Timeout: 400 * time.Millisecond}
+	res, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/v1/health", port))
 	if err != nil {
 		return false
 	}
 	res.Body.Close()
 	return res.StatusCode == 200
-}
-
-func BinaryPath() (string, error) {
-	return os.Executable()
 }

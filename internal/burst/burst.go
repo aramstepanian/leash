@@ -31,6 +31,7 @@ type Burst struct {
 	Started   time.Time `json:"started"`
 	Root      string    `json:"root"`
 	FileCount int       `json:"fileCount"`
+	LastTouch time.Time
 	mu        sync.Mutex
 	files     map[string]*Origin
 	bytes     int
@@ -68,17 +69,20 @@ func (s *Store) Last() *Burst {
 func (s *Store) Begin(root, id string) *Burst {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.active != nil && sameRoot(s.active.Root, root) && time.Since(s.active.Started) < s.idle {
+	if s.active != nil && sameRoot(s.active.Root, root) && time.Since(s.active.LastTouch) < s.idle {
+		s.active.LastTouch = time.Now()
 		return s.active
 	}
 	if s.active != nil {
 		s.last = s.active
 	}
+	now := time.Now()
 	b := &Burst{
-		ID:      id,
-		Started: time.Now(),
-		Root:    root,
-		files:   map[string]*Origin{},
+		ID:        id,
+		Started:   now,
+		LastTouch: now,
+		Root:      root,
+		files:     map[string]*Origin{},
 	}
 	s.active = b
 	return b
@@ -87,7 +91,7 @@ func (s *Store) Begin(root, id string) *Burst {
 func (s *Store) CloseIfIdle() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.active != nil && time.Since(s.active.Started) >= s.idle {
+	if s.active != nil && time.Since(s.active.LastTouch) >= s.idle {
 		s.last = s.active
 		s.active = nil
 	}
@@ -121,6 +125,9 @@ func (b *Burst) Touch(paths []string) {
 	if b == nil || b.Root == "" {
 		return
 	}
+	b.mu.Lock()
+	b.LastTouch = time.Now()
+	b.mu.Unlock()
 	root, err := filepath.Abs(b.Root)
 	if err != nil {
 		return
@@ -190,6 +197,10 @@ func (b *Burst) touchFile(root, abs string) {
 	if !info.Mode().IsRegular() {
 		return
 	}
+	// Do not follow a symlink that appeared after Lstat; re-check.
+	if info.Mode()&os.ModeSymlink != 0 {
+		return
+	}
 	if info.Size() > maxFile {
 		return
 	}
@@ -213,6 +224,12 @@ func (b *Burst) Restore() (int, error) {
 	// Restore existing files first, then delete created ones.
 	for _, o := range b.files {
 		dest := filepath.Join(b.Root, o.Rel)
+		if info, err := os.Lstat(dest); err == nil && info.Mode()&os.ModeSymlink != 0 {
+			if err := os.Remove(dest); err != nil && first == nil {
+				first = err
+				continue
+			}
+		}
 		if o.Existed {
 			if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil && first == nil {
 				first = err

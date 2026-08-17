@@ -7,8 +7,11 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/leashapp/leash/internal/atomicfile"
 	"github.com/leashapp/leash/internal/policy"
 )
+
+const maxAlways = 200
 
 type File struct {
 	Port        int           `json:"port"`
@@ -44,19 +47,12 @@ func Load() (File, error) {
 	if err := json.Unmarshal(data, &f); err != nil {
 		return f, err
 	}
-	if f.Port == 0 {
-		f.Port = 17332
-	}
-	if f.Token == "" {
-		f.Token = newToken()
-	}
-	if f.AlwaysAllow == nil {
-		f.AlwaysAllow = []policy.Rule{}
-	}
+	normalize(&f)
 	return f, nil
 }
 
 func Save(f File) error {
+	normalize(&f)
 	if err := os.MkdirAll(Dir(), 0o700); err != nil {
 		return err
 	}
@@ -64,7 +60,33 @@ func Save(f File) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(Path(), data, 0o600)
+	return atomicfile.WriteFile(Path(), data, 0o600)
+}
+
+func Ensure() (File, error) {
+	f, err := Load()
+	if err != nil {
+		return f, err
+	}
+	if f.Token == "" {
+		f.Token = newToken()
+	}
+	if err := Save(f); err != nil {
+		return f, err
+	}
+	return f, nil
+}
+
+func normalize(f *File) {
+	if f.Port == 0 {
+		f.Port = 17332
+	}
+	if f.AlwaysAllow == nil {
+		f.AlwaysAllow = []policy.Rule{}
+	}
+	if len(f.AlwaysAllow) > maxAlways {
+		f.AlwaysAllow = f.AlwaysAllow[len(f.AlwaysAllow)-maxAlways:]
+	}
 }
 
 func defaultFile() File {
@@ -73,19 +95,6 @@ func defaultFile() File {
 		Token:       newToken(),
 		AlwaysAllow: []policy.Rule{},
 	}
-}
-
-func Ensure() (File, error) {
-	f, err := Load()
-	if err != nil {
-		return f, err
-	}
-	if _, err := os.Stat(Path()); os.IsNotExist(err) {
-		if err := Save(f); err != nil {
-			return f, err
-		}
-	}
-	return f, nil
 }
 
 func newToken() string {

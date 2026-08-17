@@ -18,6 +18,9 @@ func TestAssessDangerousShell(t *testing.T) {
 		"prisma migrate reset",
 		"DROP TABLE users",
 		"pkill node",
+		"find . -delete",
+		"find . -name '*.o' -exec rm {} +",
+		"ls | xargs rm",
 	}
 	for _, cmd := range cases {
 		a := Assess("Bash", "/proj", "/proj", map[string]any{"command": cmd}, nil)
@@ -85,6 +88,28 @@ func TestAlwaysAllow(t *testing.T) {
 	a := Assess("Bash", "/proj", "/proj", map[string]any{"command": "rm -rf ./dist"}, rules)
 	if a.Verdict != Allow {
 		t.Fatalf("always allow: %+v", a)
+	}
+}
+
+func TestAlwaysAllowDoesNotPrefixMatch(t *testing.T) {
+	rules := []Rule{{Tool: "Bash", Pattern: "rm -rf ./dist"}}
+	a := Assess("Bash", "/proj", "/proj", map[string]any{"command": "rm -rf ./dist && rm -rf /"}, rules)
+	if a.Verdict != Ask {
+		t.Fatalf("always-allow must not prefix-match a longer command: %+v", a)
+	}
+}
+
+func TestNormalizeToolNotSubstring(t *testing.T) {
+	a := Assess("rebasher", "/proj", "/proj", map[string]any{"command": "rm -rf /"}, nil)
+	if a.Kind == "destroy" {
+		t.Fatalf("tool names that merely contain 'bash' must not be treated as shell: %+v", a)
+	}
+}
+
+func TestFindWithoutDeleteIsNotDangerous(t *testing.T) {
+	a := Assess("Bash", "/proj", "/proj", map[string]any{"command": "find . -name '*.go'"}, nil)
+	if a.Verdict != Allow {
+		t.Fatalf("plain find: %+v", a)
 	}
 }
 

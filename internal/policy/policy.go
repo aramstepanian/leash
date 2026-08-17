@@ -45,6 +45,8 @@ var (
 	reChmod777   = regexp.MustCompile(`(?i)\bchmod\s+(-R\s+)?([0-7]*7[0-7]*7|a\+rwx|777)\b`)
 	reDropDB     = regexp.MustCompile(`(?i)\b(drop\s+(table|database)|prisma\s+migrate\s+reset|migrate\s+reset)\b`)
 	reCurlExec   = regexp.MustCompile(`(?i)\b(eval|base64\s+-d|base64\s+--decode)\b`)
+	reFindDelete = regexp.MustCompile(`(?i)\bfind\b[\s\S]{0,400}\s-(delete|exec)\b`)
+	reXargsRm    = regexp.MustCompile(`(?i)\bxargs\b[\s\S]{0,80}\brm\b`)
 	reKillAll    = regexp.MustCompile(`(?i)\b(pkill|killall|kill\s+-9)\b`)
 )
 
@@ -152,11 +154,14 @@ func matchAlways(rules []Rule, tool, summary string, paths []string) bool {
 		if p == "" {
 			continue
 		}
-		if strings.HasPrefix(summary, p) || summary == p {
+		if summary == p {
 			return true
 		}
 		for _, path := range paths {
-			if strings.Contains(path, p) || filepath.Base(path) == p {
+			if path == p {
+				return true
+			}
+			if !strings.Contains(p, "/") && !strings.Contains(p, string(filepath.Separator)) && filepath.Base(path) == p {
 				return true
 			}
 		}
@@ -179,14 +184,14 @@ func normalizeTool(tool string) string {
 		t = strings.TrimSpace(t[4:])
 		low = strings.ToLower(t)
 	}
-	switch {
-	case low == "bash" || low == "shell" || low == "bashtool" || low == "powershell" || strings.Contains(low, "bash") || strings.Contains(low, "shell"):
+	switch low {
+	case "bash", "shell", "bashtool", "powershell":
 		return "Bash"
-	case low == "apply_patch" || low == "applypatch" || low == "edit" || low == "multiedit" || low == "notebookedit" || low == "str_replace" || low == "strreplace":
+	case "apply_patch", "applypatch", "edit", "multiedit", "notebookedit", "str_replace", "strreplace":
 		return "Edit"
-	case low == "write" || low == "delete" || low == "remove":
+	case "write", "delete", "remove":
 		return "Write"
-	case low == "read" || low == "readfile" || low == "read_file":
+	case "read", "readfile", "read_file":
 		return "Read"
 	default:
 		return t
@@ -322,6 +327,12 @@ func dangerousShell(cmd string) []string {
 	if reKillAll.MatchString(cmd) {
 		reasons = append(reasons, "kill processes")
 	}
+	if reFindDelete.MatchString(cmd) {
+		reasons = append(reasons, "find -delete/-exec")
+	}
+	if reXargsRm.MatchString(cmd) {
+		reasons = append(reasons, "xargs rm")
+	}
 	return reasons
 }
 
@@ -389,16 +400,50 @@ func isMutating(tool, summary string, paths []string) bool {
 	case "Read", "Glob", "Grep", "LS", "WebSearch", "WebFetch", "TodoRead", "TodoWrite":
 		return false
 	case "Bash":
-		low := strings.ToLower(strings.TrimSpace(summary))
-		readonly := []string{"ls", "pwd", "git status", "git diff", "git log", "git show", "cat ", "head ", "tail ", "rg ", "grep ", "find ", "echo ", "which ", "whoami", "env", "date", "wc "}
-		for _, p := range readonly {
-			if low == strings.TrimSpace(p) || strings.HasPrefix(low, p) {
-				return false
-			}
-		}
-		return true
+		return bashMutating(summary)
 	default:
 		return len(paths) > 0 || normalizeTool(tool) == "Write" || normalizeTool(tool) == "Edit"
+	}
+}
+
+func bashMutating(summary string) bool {
+	low := strings.ToLower(strings.TrimSpace(summary))
+	if low == "" {
+		return false
+	}
+	if strings.ContainsAny(low, ";&|><") {
+		return true
+	}
+	fields := strings.Fields(low)
+	if len(fields) == 0 {
+		return false
+	}
+	switch fields[0] {
+	case "ls", "pwd", "cat", "head", "tail", "rg", "grep", "echo", "which", "whoami", "date", "wc", "true", "false":
+		return false
+	case "git":
+		if len(fields) < 2 {
+			return false
+		}
+		switch fields[1] {
+		case "status", "diff", "log", "show", "rev-parse", "describe":
+			return false
+		case "branch":
+			for _, f := range fields[2:] {
+				if f == "-d" || f == "-D" || strings.HasPrefix(f, "--delete") {
+					return true
+				}
+			}
+			return false
+		default:
+			return true
+		}
+	case "find":
+		return strings.Contains(low, "-delete") || strings.Contains(low, "-exec")
+	case "env":
+		return len(fields) > 1
+	default:
+		return true
 	}
 }
 
