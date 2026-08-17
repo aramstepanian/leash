@@ -366,6 +366,7 @@ export const Leash = async ({ directory }) => {
         protocol: "leash",
         hook_event_name: "pre_tool",
         cwd: directory,
+        agent: "OpenCode",
         tool_name: input.tool,
         tool_input: output.args || {},
       }

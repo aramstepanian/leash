@@ -131,3 +131,22 @@ func TestSkipSnapshot(t *testing.T) {
 		t.Fatal("should not skip src")
 	}
 }
+
+func TestMatchRootPrefersNested(t *testing.T) {
+	got := MatchRoot("/work/app/src", []string{"/work", "/work/app"})
+	if got != absPath("/work/app") {
+		t.Fatalf("got %s", got)
+	}
+}
+
+func TestAlwaysAllowIsPerFolder(t *testing.T) {
+	rules := []Rule{{Tool: "Bash", Pattern: "rm -rf ./dist", Root: "/proj-a"}}
+	other := Assess("Bash", "/proj-b", "/proj-b", map[string]any{"command": "rm -rf ./dist"}, rules)
+	if other.Verdict != Ask {
+		t.Fatalf("always-allow must not leak across folders: %+v", other)
+	}
+	same := Assess("Bash", "/proj-a", "/proj-a", map[string]any{"command": "rm -rf ./dist"}, rules)
+	if same.Verdict != Allow {
+		t.Fatalf("same folder should still always-allow: %+v", same)
+	}
+}

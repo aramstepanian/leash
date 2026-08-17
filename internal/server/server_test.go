@@ -279,3 +279,52 @@ func TestWatchMustBeDirectory(t *testing.T) {
 		t.Fatalf("real dir status %d", res.StatusCode)
 	}
 }
+
+func TestTwoAgentsQueue(t *testing.T) {
+	t.Setenv("LEASH_HOME", t.TempDir())
+	a := t.TempDir()
+	b := t.TempDir()
+	s := New(config.File{Token: "t", WatchRoot: a})
+	s.AskTimeout = 2 * time.Second
+
+	done := make(chan struct{}, 2)
+	go func() {
+		_, _ = s.HandleHook(context.Background(), []byte(`{
+			"protocol":"leash","hook_event_name":"pre_tool","agent":"Cursor",
+			"cwd":"`+a+`","tool_name":"Bash","tool_input":{"command":"rm -rf ./dist"}
+		}`))
+		done <- struct{}{}
+	}()
+	go func() {
+		_, _ = s.HandleHook(context.Background(), []byte(`{
+			"protocol":"leash","hook_event_name":"pre_tool","agent":"OpenCode",
+			"cwd":"`+b+`","tool_name":"Bash","tool_input":{"command":"sudo reboot"}
+		}`))
+		done <- struct{}{}
+	}()
+
+	deadline := time.Now().Add(time.Second)
+	for s.Snapshot().Waiting < 2 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	st := s.Snapshot()
+	if st.Waiting != 2 || st.Pending == nil || len(st.Queue) != 1 {
+		t.Fatalf("waiting=%d pending=%v queue=%d", st.Waiting, st.Pending, len(st.Queue))
+	}
+	if err := s.Resolve(st.Pending.ID, hookfmt.DecisionKill); err != nil {
+		t.Fatal(err)
+	}
+	deadline = time.Now().Add(time.Second)
+	for s.Snapshot().Waiting != 1 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	st = s.Snapshot()
+	if st.Waiting != 1 || st.Pending == nil {
+		t.Fatalf("after first decide waiting=%d", st.Waiting)
+	}
+	if err := s.Resolve(st.Pending.ID, hookfmt.DecisionKill); err != nil {
+		t.Fatal(err)
+	}
+	<-done
+	<-done
+}

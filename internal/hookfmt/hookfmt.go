@@ -22,6 +22,7 @@ type Event struct {
 	ToolName      string
 	ToolInput     map[string]any
 	Dialect       Dialect
+	Agent         string
 }
 
 func Parse(data []byte) (Event, error) {
@@ -34,6 +35,7 @@ func Parse(data []byte) (Event, error) {
 		CWD:           firstStr(raw, "cwd", "cwd_path"),
 		HookEventName: firstStr(raw, "hook_event_name", "hookEventName"),
 		ToolName:      firstStr(raw, "tool_name", "tool"),
+		Agent:         firstStr(raw, "agent"),
 		Dialect:       detectDialect(raw),
 	}
 	if ev.CWD == "" {
@@ -81,6 +83,31 @@ func detectDialect(raw map[string]any) Dialect {
 		return DialectCursor
 	}
 	return DialectClaude
+}
+
+func AgentLabel(ev Event) string {
+	if s := strings.TrimSpace(ev.Agent); s != "" {
+		switch strings.ToLower(s) {
+		case "opencode", "open-code":
+			return "OpenCode"
+		case "claude", "claude-code":
+			return "Claude"
+		case "cursor":
+			return "Cursor"
+		case "codex":
+			return "Codex"
+		default:
+			return s
+		}
+	}
+	switch ev.Dialect {
+	case DialectCursor:
+		return "Cursor"
+	case DialectClaude:
+		return "Claude"
+	default:
+		return "Agent"
+	}
 }
 
 func normalizeCursorShape(raw map[string]any, ev *Event) {

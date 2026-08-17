@@ -54,8 +54,12 @@ struct ApprovalView: View {
             commandWell(pending, kind: kind)
                 .padding(.top, 16)
             if let cwd = pending.cwd, !cwd.isEmpty {
-                pathRow(cwd)
+                pathRow(pending)
                     .padding(.top, 10)
+            }
+            if app.state.waitingCount > 1 {
+                queueNote
+                    .padding(.top, 12)
             }
             actions
                 .padding(.top, 22)
@@ -70,6 +74,11 @@ struct ApprovalView: View {
             LeashMark(filled: true, tint: kind.color, size: 14)
             LeashWordmark()
             Spacer()
+            if let agent = pending.agent, !agent.isEmpty {
+                Text(agent)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(LeashPaint.muted)
+            }
             if !pending.tool.isEmpty {
                 Text(pending.tool)
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
@@ -121,16 +130,23 @@ struct ApprovalView: View {
         )
     }
 
-    private func pathRow(_ cwd: String) -> some View {
+    private func pathRow(_ pending: PendingApproval) -> some View {
         HStack(spacing: 6) {
             Image(systemName: "folder")
                 .font(.system(size: 10, weight: .medium))
-            Text(compactPath(cwd))
+            Text(compactPath(pending.root ?? pending.cwd ?? ""))
                 .font(.system(size: 11, design: .monospaced))
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
         .foregroundStyle(LeashPaint.muted)
+    }
+
+    private var queueNote: some View {
+        let n = app.state.waitingCount - 1
+        return Text(n == 1 ? "1 more waiting" : "\(n) more waiting")
+            .font(.system(size: 11, weight: .medium))
+            .foregroundStyle(LeashPaint.muted)
     }
 
     private var actions: some View {

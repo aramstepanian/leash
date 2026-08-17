@@ -31,6 +31,7 @@ type Assessment struct {
 type Rule struct {
 	Tool    string `json:"tool"`
 	Pattern string `json:"pattern"`
+	Root    string `json:"root,omitempty"`
 }
 
 var (
@@ -83,7 +84,7 @@ func Assess(tool, cwd, watchRoot string, input map[string]any, always []Rule) As
 		Paths:    paths,
 	}
 
-	if matchAlways(always, tool, summary, paths) {
+	if matchAlways(always, tool, summary, watchRoot, paths) {
 		a.Verdict = Allow
 		a.Reasons = []string{"always-allow rule"}
 		return a
@@ -146,9 +147,12 @@ func Assess(tool, cwd, watchRoot string, input map[string]any, always []Rule) As
 	return a
 }
 
-func matchAlways(rules []Rule, tool, summary string, paths []string) bool {
+func matchAlways(rules []Rule, tool, summary, root string, paths []string) bool {
 	for _, r := range rules {
 		if r.Tool != "" && !strings.EqualFold(normalizeTool(r.Tool), tool) {
+			continue
+		}
+		if r.Root != "" && root != "" && !SameRoot(r.Root, root) {
 			continue
 		}
 		p := strings.TrimSpace(r.Pattern)

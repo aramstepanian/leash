@@ -33,6 +33,29 @@ func TestEnsurePersistsToken(t *testing.T) {
 	}
 }
 
+func TestWatchRootMigratesToList(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("LEASH_HOME", dir)
+	if err := Save(File{Port: 17332, Token: "t", WatchRoot: "/old"}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.WatchRoots) != 1 || loaded.WatchRoots[0] != absMust("/old") {
+		t.Fatalf("watchRoots=%v", loaded.WatchRoots)
+	}
+}
+
+func absMust(p string) string {
+	a, err := filepath.Abs(p)
+	if err != nil {
+		return p
+	}
+	return a
+}
+
 func TestAlwaysAllowCap(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("LEASH_HOME", dir)

@@ -218,11 +218,22 @@ func cmdStatus() error {
 		return err
 	}
 	fmt.Printf("daemon: on  :%d  %s\n", st.Port, st.Status)
-	if st.WatchRoot != "" {
+	if len(st.WatchRoots) > 0 {
+		for _, r := range st.WatchRoots {
+			fmt.Printf("watch:  %s\n", r)
+		}
+	} else if st.WatchRoot != "" {
 		fmt.Printf("watch:  %s\n", st.WatchRoot)
 	}
+	if st.Waiting > 1 {
+		fmt.Printf("waiting: %d\n", st.Waiting)
+	}
 	if st.Pending != nil {
-		fmt.Printf("pending %s  %s\n%s\n", st.Pending.ID, st.Pending.Title, st.Pending.Detail)
+		who := st.Pending.Agent
+		if who != "" {
+			who = who + "  "
+		}
+		fmt.Printf("pending %s  %s%s\n%s\n", st.Pending.ID, who, st.Pending.Title, st.Pending.Detail)
 		fmt.Println("decide: leash decide", st.Pending.ID, "allow|always|kill")
 	}
 	if st.Burst != nil {

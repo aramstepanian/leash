@@ -57,6 +57,8 @@ type Pending struct {
 	Reasons    []string  `json:"reasons"`
 	Pattern    string    `json:"pattern"`
 	CWD        string    `json:"cwd"`
+	Root       string    `json:"root,omitempty"`
+	Agent      string    `json:"agent,omitempty"`
 	Created    time.Time `json:"created"`
 	event      hookfmt.Event
 	assessment policy.Assessment
@@ -64,14 +66,18 @@ type Pending struct {
 }
 
 type State struct {
-	Status    string   `json:"status"`
-	WatchRoot string   `json:"watchRoot"`
-	Pending   *Pending `json:"pending,omitempty"`
-	Burst     *struct {
+	Status     string   `json:"status"`
+	WatchRoot  string   `json:"watchRoot"`
+	WatchRoots []string `json:"watchRoots,omitempty"`
+	Pending    *Pending `json:"pending,omitempty"`
+	Queue      []Pending `json:"queue,omitempty"`
+	Waiting    int      `json:"waiting"`
+	Burst      *struct {
 		ID        string    `json:"id"`
 		Started   time.Time `json:"started"`
 		FileCount int       `json:"fileCount"`
 		Files     []string  `json:"files"`
+		Root      string    `json:"root,omitempty"`
 	} `json:"burst,omitempty"`
 	LastKill    *time.Time    `json:"lastKill,omitempty"`
 	AlwaysAllow []policy.Rule `json:"alwaysAllow"`
@@ -191,6 +197,7 @@ func (s *Server) Snapshot() State {
 	st := State{
 		Status:      "idle",
 		WatchRoot:   s.Cfg.WatchRoot,
+		WatchRoots:  append([]string{}, s.Cfg.WatchRoots...),
 		AlwaysAllow: s.Cfg.AlwaysAllow,
 		Port:        s.Cfg.Port,
 	}
@@ -201,10 +208,15 @@ func (s *Server) Snapshot() State {
 		t := s.lastKill.UTC().Truncate(time.Second)
 		st.LastKill = &t
 	}
-	if p := oldestPending(s.pending); p != nil {
-		cp := *p
+	ordered := pendingOldestFirst(s.pending)
+	st.Waiting = len(ordered)
+	if len(ordered) > 0 {
+		cp := ordered[0]
 		st.Pending = &cp
 		st.Status = "waiting"
+		if len(ordered) > 1 {
+			st.Queue = ordered[1:]
+		}
 	}
 	if b := s.Bursts.Last(); b != nil {
 		st.Burst = &struct {
@@ -212,7 +224,8 @@ func (s *Server) Snapshot() State {
 			Started   time.Time `json:"started"`
 			FileCount int       `json:"fileCount"`
 			Files     []string  `json:"files"`
-		}{ID: b.ID, Started: b.Started.UTC().Truncate(time.Second), FileCount: b.FileCount, Files: b.Files()}
+			Root      string    `json:"root,omitempty"`
+		}{ID: b.ID, Started: b.Started.UTC().Truncate(time.Second), FileCount: b.FileCount, Files: b.Files(), Root: b.Root}
 		if st.Status == "idle" {
 			st.Status = "watching"
 		}
@@ -220,19 +233,26 @@ func (s *Server) Snapshot() State {
 	return st
 }
 
-func oldestPending(m map[string]*Pending) *Pending {
-	var oldest *Pending
+func pendingOldestFirst(m map[string]*Pending) []Pending {
+	out := make([]Pending, 0, len(m))
 	for _, p := range m {
-		if oldest == nil || p.Created.Before(oldest.Created) {
-			oldest = p
+		cp := *p
+		out = append(out, cp)
+	}
+	for i := 0; i < len(out); i++ {
+		for j := i + 1; j < len(out); j++ {
+			if out[j].Created.Before(out[i].Created) {
+				out[i], out[j] = out[j], out[i]
+			}
 		}
 	}
-	return oldest
+	return out
 }
 
 func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Path string `json:"path"`
+		Path   string `json:"path"`
+		Remove bool   `json:"remove"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 32<<10)).Decode(&body); err != nil {
 		http.Error(w, err.Error(), 400)
@@ -248,13 +268,31 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "watch path must be an existing directory", 400)
 		return
 	}
+	if body.Remove {
+		s.mu.Lock()
+		s.Cfg.WatchRoots = policy.RemoveRoot(s.Cfg.WatchRoots, abs)
+		if len(s.Cfg.WatchRoots) > 0 {
+			s.Cfg.WatchRoot = s.Cfg.WatchRoots[0]
+		} else {
+			s.Cfg.WatchRoot = ""
+		}
+		cfg := s.Cfg
+		s.mu.Unlock()
+		if err := config.Save(cfg); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		writeJSON(w, s.Snapshot())
+		return
+	}
 	info, err := os.Stat(abs)
 	if err != nil || !info.IsDir() {
 		http.Error(w, "watch path must be an existing directory", 400)
 		return
 	}
 	s.mu.Lock()
-	s.Cfg.WatchRoot = abs
+	s.Cfg.WatchRoots = policy.RememberRoot(s.Cfg.WatchRoots, abs)
+	s.Cfg.WatchRoot = s.Cfg.WatchRoots[0]
 	cfg := s.Cfg
 	s.mu.Unlock()
 	if err := config.Save(cfg); err != nil {
@@ -309,6 +347,7 @@ func (s *Server) Resolve(id string, d hookfmt.Decision) error {
 		s.Cfg.AlwaysAllow = append(s.Cfg.AlwaysAllow, policy.Rule{
 			Tool:    p.Tool,
 			Pattern: alwaysPattern(p),
+			Root:    p.Root,
 		})
 		if len(s.Cfg.AlwaysAllow) > maxAlways {
 			s.Cfg.AlwaysAllow = s.Cfg.AlwaysAllow[len(s.Cfg.AlwaysAllow)-maxAlways:]
@@ -369,11 +408,16 @@ func (s *Server) HandleHook(ctx context.Context, body []byte) ([]byte, error) {
 	s.Bursts.CloseIfIdle()
 
 	s.mu.Lock()
-	watch := s.Cfg.WatchRoot
+	roots := append([]string{}, s.Cfg.WatchRoots...)
+	if len(roots) == 0 && s.Cfg.WatchRoot != "" {
+		roots = []string{s.Cfg.WatchRoot}
+	}
 	always := append([]policy.Rule{}, s.Cfg.AlwaysAllow...)
 	s.mu.Unlock()
-	if watch == "" {
-		watch = ev.CWD
+
+	watch := policy.MatchRoot(ev.CWD, roots)
+	if ev.CWD != "" && !rootKnown(roots, watch) {
+		s.rememberWatch(watch)
 	}
 
 	a := policy.Assess(ev.ToolName, ev.CWD, watch, ev.ToolInput, always)
@@ -402,7 +446,7 @@ func (s *Server) HandleHook(ctx context.Context, body []byte) ([]byte, error) {
 		return hookfmt.Encode(ev, d, "Allowed by Leash"), nil
 	}
 
-	dec, err := s.ask(ctx, ev, a)
+	dec, err := s.ask(ctx, ev, a, watch)
 	if err != nil {
 		reason := "Leash timed out"
 		if errors.Is(err, errTooManyPending) {
@@ -421,7 +465,7 @@ func (s *Server) HandleHook(ctx context.Context, body []byte) ([]byte, error) {
 	return hookfmt.Encode(ev, dec, reason), nil
 }
 
-func (s *Server) ask(ctx context.Context, ev hookfmt.Event, a policy.Assessment) (hookfmt.Decision, error) {
+func (s *Server) ask(ctx context.Context, ev hookfmt.Event, a policy.Assessment, root string) (hookfmt.Decision, error) {
 	if s.Auto != nil {
 		return s.Auto(a), nil
 	}
@@ -434,6 +478,8 @@ func (s *Server) ask(ctx context.Context, ev hookfmt.Event, a policy.Assessment)
 		Reasons:    a.Reasons,
 		Pattern:    a.Pattern,
 		CWD:        ev.CWD,
+		Root:       root,
+		Agent:      hookfmt.AgentLabel(ev),
 		Created:    time.Now(),
 		event:      ev,
 		assessment: a,
@@ -470,6 +516,43 @@ func policyTool(tool string) string {
 		return "Bash"
 	}
 	return tool
+}
+
+func (s *Server) rememberWatch(cwd string) {
+	s.mu.Lock()
+	next := policy.RememberRoot(s.Cfg.WatchRoots, cwd)
+	if sameStringSlice(s.Cfg.WatchRoots, next) {
+		s.mu.Unlock()
+		return
+	}
+	s.Cfg.WatchRoots = next
+	if len(next) > 0 {
+		s.Cfg.WatchRoot = next[0]
+	}
+	cfg := s.Cfg
+	s.mu.Unlock()
+	_ = config.Save(cfg)
+}
+
+func rootKnown(roots []string, watch string) bool {
+	for _, r := range roots {
+		if policy.SameRoot(r, watch) {
+			return true
+		}
+	}
+	return false
+}
+
+func sameStringSlice(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 type recentDec struct {

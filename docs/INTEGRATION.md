@@ -40,12 +40,15 @@ Write JSON to stdin, read JSON from stdout. Exit 0.
   "protocol": "leash",
   "hook_event_name": "pre_tool",
   "cwd": "/absolute/project/root",
+  "agent": "OpenCode",
   "tool_name": "Bash",
   "tool_input": { "command": "rm -rf ./dist" }
 }
 ```
 
-`tool_name` can be `Bash` / `Shell` / `bash`, `Write` / `write`, `Edit` / `edit`, `Read` / `read`. File tools should put the path in `tool_input.file_path` or `filePath`.
+`tool_name` can be `Bash` / `Shell` / `bash`, `Write` / `write`, `Edit` / `edit`, `Read` / `read`. File tools should put the path in `tool_input.file_path` or `filePath`. Optional `agent` labels the HUD when several agents are running (`Cursor`, `Claude`, `Codex`, `OpenCode`).
+
+Each hook is scoped to `cwd`: Always-allow, outside-project checks, and undo bursts are per folder, so two agents in two repos do not share a seatbelt.
 
 **Response**
 

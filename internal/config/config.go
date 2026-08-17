@@ -17,6 +17,7 @@ type File struct {
 	Port        int           `json:"port"`
 	Token       string        `json:"token"`
 	WatchRoot   string        `json:"watchRoot"`
+	WatchRoots  []string      `json:"watchRoots,omitempty"`
 	AlwaysAllow []policy.Rule `json:"alwaysAllow"`
 }
 
@@ -86,6 +87,12 @@ func normalize(f *File) {
 	}
 	if len(f.AlwaysAllow) > maxAlways {
 		f.AlwaysAllow = f.AlwaysAllow[len(f.AlwaysAllow)-maxAlways:]
+	}
+	if f.WatchRoot != "" {
+		f.WatchRoots = policy.RememberRoot(f.WatchRoots, f.WatchRoot)
+	}
+	if len(f.WatchRoots) > 0 {
+		f.WatchRoot = f.WatchRoots[0]
 	}
 }
 

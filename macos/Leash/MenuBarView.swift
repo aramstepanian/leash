@@ -11,14 +11,16 @@ struct MenuBarView: View {
                 .padding(.top, 12)
                 .padding(.bottom, 6)
 
-            if let pending = app.state.pending {
-                pendingRow(pending)
-                    .padding(.bottom, 6)
+            if !app.state.allPending.isEmpty {
+                ForEach(app.state.allPending) { pending in
+                    pendingRow(pending)
+                        .padding(.bottom, 6)
+                }
                 Hairline()
                     .padding(.bottom, 6)
             }
 
-            MenuRow(title: "Watch folder", subtitle: watchSubtitle, symbol: "folder") {
+            MenuRow(title: "Watch folders", subtitle: watchSubtitle, symbol: "folder") {
                 app.pickFolder()
             }
             MenuRow(
@@ -95,7 +97,7 @@ struct MenuBarView: View {
                     Text(pending.title)
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(LeashPaint.ink)
-                    Text("Waiting on you")
+                    Text(pendingWaitLabel(pending))
                         .font(.system(size: 11))
                         .foregroundStyle(kind.color)
                 }
@@ -111,8 +113,21 @@ struct MenuBarView: View {
         .buttonStyle(.plain)
     }
 
+    private func pendingWaitLabel(_ pending: PendingApproval) -> String {
+        var parts: [String] = []
+        if let agent = pending.agent, !agent.isEmpty { parts.append(agent) }
+        let folder = pending.root ?? pending.cwd ?? ""
+        if !folder.isEmpty {
+            parts.append((folder as NSString).lastPathComponent)
+        }
+        if parts.isEmpty { return "Waiting on you" }
+        return parts.joined(separator: " · ")
+    }
+
     private var statusTitle: String {
-        if app.state.pending != nil { return "Needs you" }
+        let n = app.state.waitingCount
+        if n > 1 { return "Needs you · \(n)" }
+        if n == 1 { return "Needs you" }
         if app.daemonError != nil { return "Offline" }
         switch app.state.status {
         case "watching": return "Watching"
@@ -129,7 +144,11 @@ struct MenuBarView: View {
         if let err = app.daemonError {
             return err
         }
-        if let root = app.state.watchRoot, !root.isEmpty {
+        let folders = app.state.folders
+        if folders.count > 1 {
+            return "\(folders.count) folders"
+        }
+        if let root = folders.first {
             return compactPath(root)
         }
         return "Pick a folder to protect"
@@ -143,7 +162,11 @@ struct MenuBarView: View {
     }
 
     private var watchSubtitle: String {
-        if let root = app.state.watchRoot, !root.isEmpty {
+        let folders = app.state.folders
+        if folders.count > 1 {
+            return folders.map { ($0 as NSString).lastPathComponent }.joined(separator: " · ")
+        }
+        if let root = folders.first {
             return compactPath(root)
         }
         return "Choose the project folder"
@@ -152,7 +175,13 @@ struct MenuBarView: View {
     private var undoSubtitle: String {
         if let burst = app.state.burst {
             let n = burst.fileCount
-            return "\(n) file\(n == 1 ? "" : "s") in the last burst"
+            var line = "\(n) file\(n == 1 ? "" : "s")"
+            if let root = burst.root, !root.isEmpty {
+                line += " in \((root as NSString).lastPathComponent)"
+            } else {
+                line += " in the last burst"
+            }
+            return line
         }
         return "Nothing to restore"
     }

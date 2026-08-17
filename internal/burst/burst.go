@@ -39,7 +39,7 @@ type Burst struct {
 
 type Store struct {
 	mu     sync.Mutex
-	active *Burst
+	active map[string]*Burst
 	last   *Burst
 	idle   time.Duration
 }
@@ -48,58 +48,74 @@ func NewStore(idle time.Duration) *Store {
 	if idle <= 0 {
 		idle = 3 * time.Minute
 	}
-	return &Store{idle: idle}
+	return &Store{active: map[string]*Burst{}, idle: idle}
 }
 
 func (s *Store) Active() *Burst {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.active
+	return s.newestLocked()
 }
 
 func (s *Store) Last() *Burst {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.active != nil {
-		return s.active
+	if b := s.newestLocked(); b != nil {
+		return b
 	}
 	return s.last
+}
+
+func (s *Store) newestLocked() *Burst {
+	var best *Burst
+	for _, b := range s.active {
+		if best == nil || b.LastTouch.After(best.LastTouch) {
+			best = b
+		}
+	}
+	return best
 }
 
 func (s *Store) Begin(root, id string) *Burst {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.active != nil && sameRoot(s.active.Root, root) && time.Since(s.active.LastTouch) < s.idle {
-		s.active.LastTouch = time.Now()
-		return s.active
+	k := rootKey(root)
+	if b := s.active[k]; b != nil && time.Since(b.LastTouch) < s.idle {
+		b.LastTouch = time.Now()
+		return b
 	}
-	if s.active != nil {
-		s.last = s.active
+	if b := s.active[k]; b != nil {
+		s.last = b
 	}
 	now := time.Now()
 	b := &Burst{
 		ID:        id,
 		Started:   now,
 		LastTouch: now,
-		Root:      root,
+		Root:      k,
 		files:     map[string]*Origin{},
 	}
-	s.active = b
+	if s.active == nil {
+		s.active = map[string]*Burst{}
+	}
+	s.active[k] = b
 	return b
 }
 
 func (s *Store) CloseIfIdle() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.active != nil && time.Since(s.active.LastTouch) >= s.idle {
-		s.last = s.active
-		s.active = nil
+	for k, b := range s.active {
+		if time.Since(b.LastTouch) >= s.idle {
+			s.last = b
+			delete(s.active, k)
+		}
 	}
 }
 
 func (s *Store) Undo() (int, error) {
 	s.mu.Lock()
-	b := s.active
+	b := s.newestLocked()
 	if b == nil {
 		b = s.last
 	}
@@ -112,10 +128,10 @@ func (s *Store) Undo() (int, error) {
 		return n, err
 	}
 	s.mu.Lock()
-	if s.active == b {
-		s.active = nil
+	delete(s.active, rootKey(b.Root))
+	if s.last == b {
+		s.last = nil
 	}
-	s.last = nil
 	s.mu.Unlock()
 	return n, nil
 }
@@ -265,8 +281,14 @@ func (b *Burst) Files() []string {
 	return out
 }
 
+func rootKey(root string) string {
+	aa, err := filepath.Abs(root)
+	if err != nil {
+		return root
+	}
+	return aa
+}
+
 func sameRoot(a, b string) bool {
-	aa, _ := filepath.Abs(a)
-	bb, _ := filepath.Abs(b)
-	return aa == bb
+	return rootKey(a) == rootKey(b)
 }

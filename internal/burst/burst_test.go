@@ -140,3 +140,45 @@ func TestNothingToUndo(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestTwoRootsKeepSeparateBursts(t *testing.T) {
+	a := t.TempDir()
+	b := t.TempDir()
+	fa := filepath.Join(a, "a.txt")
+	fb := filepath.Join(b, "b.txt")
+	if err := os.WriteFile(fa, []byte("A"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fb, []byte("B"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(time.Minute)
+	ba := store.Begin(a, "a")
+	ba.Touch([]string{fa})
+	bb := store.Begin(b, "b")
+	bb.Touch([]string{fb})
+	if ba == bb {
+		t.Fatal("different folders must not share a burst")
+	}
+	if err := os.WriteFile(fa, []byte("A2"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fb, []byte("B2"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	n, err := store.Undo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("undo newest only, got %d", n)
+	}
+	gotB, _ := os.ReadFile(fb)
+	if string(gotB) != "B" {
+		t.Fatalf("newest folder not restored: %q", gotB)
+	}
+	gotA, _ := os.ReadFile(fa)
+	if string(gotA) != "A2" {
+		t.Fatalf("other folder should be untouched: %q", gotA)
+	}
+}
