@@ -7,90 +7,200 @@ struct MenuBarView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            statusRow
-            Divider()
+            statusHeader
+            Hairline()
+                .padding(.top, 12)
+                .padding(.bottom, 6)
+
             if let pending = app.state.pending {
-                Button("Review \(pending.title)…") {
-                    openWindow(id: "approval")
-                }
-                Divider()
+                pendingRow(pending)
+                    .padding(.bottom, 6)
+                Hairline()
+                    .padding(.bottom, 6)
             }
-            Button("Watch folder…") { app.pickFolder() }
-            if let root = app.state.watchRoot, !root.isEmpty {
-                Text(compact(root))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
+
+            MenuRow(title: "Watch folder", subtitle: watchSubtitle, symbol: "folder") {
+                app.pickFolder()
             }
-            Button("Undo last burst") {
+            MenuRow(
+                title: "Undo last burst",
+                subtitle: undoSubtitle,
+                symbol: "arrow.uturn.backward",
+                disabled: app.state.burst == nil
+            ) {
                 Task { await app.undo() }
             }
-            .disabled(app.state.burst == nil)
-            if let burst = app.state.burst {
-                Text("\(burst.fileCount) files in last burst")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
-            }
-            if let msg = app.lastUndo {
-                Text(msg)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 12)
-            }
-            Divider()
-            Button("Install agent hooks") {
+            MenuRow(title: "Install hooks", subtitle: "Cursor · Claude · Codex · OpenCode", symbol: "square.and.arrow.down") {
                 Task { await app.installHooks() }
             }
-            Text("Cursor, OpenCode, Claude, Codex")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 12)
-            Button("Quit Leash") {
+
+            if let notice = app.notice {
+                Text(notice)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(LeashPaint.ink.opacity(0.7))
+                    .padding(.horizontal, 8)
+                    .padding(.top, 6)
+                    .padding(.bottom, 2)
+            }
+
+            Hairline()
+                .padding(.vertical, 6)
+
+            MenuRow(title: "Quit Leash", symbol: "power") {
                 NSApplication.shared.terminate(nil)
             }
         }
+        .padding(10)
+        .frame(width: 300)
+        .background(LeashPaint.paper)
+        .containerBackground(LeashPaint.paper, for: .window)
+        .background(WindowAccess(configure: LeashChrome.menu))
         .onAppear { app.start() }
         .onReceive(NotificationCenter.default.publisher(for: .leashShowApproval)) { _ in
             openWindow(id: "approval")
         }
     }
 
-    private var statusRow: some View {
-        HStack {
-            Circle()
-                .fill(dot)
-                .frame(width: 8, height: 8)
-            Text(label)
-            Spacer()
+    private var statusHeader: some View {
+        HStack(alignment: .center, spacing: 10) {
+            ZStack {
+                Circle()
+                    .fill(statusTint.opacity(0.14))
+                    .frame(width: 28, height: 28)
+                LeashMark(filled: app.state.pending != nil || app.state.status == "watching", tint: statusTint)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(statusTitle)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(LeashPaint.ink)
+                Text(statusDetail)
+                    .font(.system(size: 11, design: .monospaced))
+                    .foregroundStyle(LeashPaint.muted)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 8)
+            LeashWordmark()
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
+        .padding(.horizontal, 6)
+        .padding(.top, 4)
+        .padding(.bottom, 2)
     }
 
-    private var label: String {
-        if app.state.pending != nil { return "Waiting on you" }
-        if app.daemonError != nil { return "Daemon off" }
+    private func pendingRow(_ pending: PendingApproval) -> some View {
+        let kind = LeashKind(pending.kind)
+        return Button {
+            openWindow(id: "approval")
+        } label: {
+            HStack(spacing: 10) {
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(kind.color)
+                    .frame(width: 2, height: 28)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(pending.title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(LeashPaint.ink)
+                    Text("Waiting on you")
+                        .font(.system(size: 11))
+                        .foregroundStyle(kind.color)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(LeashPaint.muted)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
+            .background(kind.color.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var statusTitle: String {
+        if app.state.pending != nil { return "Needs you" }
+        if app.daemonError != nil { return "Offline" }
         switch app.state.status {
         case "watching": return "Watching"
-        case "waiting": return "Waiting on you"
+        case "waiting": return "Needs you"
         case "idle": return "Idle"
         default: return "Offline"
         }
     }
 
-    private var dot: Color {
-        if app.state.pending != nil { return .red }
-        if app.daemonError != nil { return .secondary }
-        if app.state.status == "watching" { return .green }
-        return .secondary
+    private var statusDetail: String {
+        if let pending = app.state.pending {
+            return pending.title
+        }
+        if let err = app.daemonError {
+            return err
+        }
+        if let root = app.state.watchRoot, !root.isEmpty {
+            return compactPath(root)
+        }
+        return "Pick a folder to protect"
     }
 
-    private func compact(_ path: String) -> String {
-        let home = FileManager.default.homeDirectoryForCurrentUser.path
-        if path.hasPrefix(home) {
-            return "~" + path.dropFirst(home.count)
+    private var statusTint: Color {
+        if app.state.pending != nil { return LeashPaint.vermillion }
+        if app.daemonError != nil { return LeashPaint.muted }
+        if app.state.status == "watching" { return Color(nsColor: NSColor(srgbRed: 0.310, green: 0.545, blue: 0.427, alpha: 1)) }
+        return LeashPaint.muted
+    }
+
+    private var watchSubtitle: String {
+        if let root = app.state.watchRoot, !root.isEmpty {
+            return compactPath(root)
         }
-        return path
+        return "Choose the project folder"
+    }
+
+    private var undoSubtitle: String {
+        if let burst = app.state.burst {
+            let n = burst.fileCount
+            return "\(n) file\(n == 1 ? "" : "s") in the last burst"
+        }
+        return "Nothing to restore"
+    }
+}
+
+private struct MenuRow: View {
+    var title: String
+    var subtitle: String?
+    var symbol: String
+    var disabled: Bool = false
+    var action: () -> Void
+
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: symbol)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(LeashPaint.muted)
+                    .frame(width: 16)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(LeashPaint.ink)
+                    if let subtitle, !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.system(size: 11))
+                            .foregroundStyle(LeashPaint.muted)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, subtitle == nil ? 7 : 8)
+            .background(hover && !disabled ? LeashPaint.faint : .clear, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .opacity(disabled ? 0.42 : 1)
+        .onHover { hover = $0 }
     }
 }

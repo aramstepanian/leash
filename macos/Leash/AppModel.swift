@@ -7,6 +7,8 @@ final class AppModel: ObservableObject {
     @Published var state: LeashState = .empty
     @Published var daemonError: String?
     @Published var lastUndo: String?
+    @Published var notice: String?
+    @Published var deciding = false
 
     private var client = DaemonClient()
     private var timer: Timer?
@@ -54,6 +56,9 @@ final class AppModel: ObservableObject {
 
     func decide(_ action: String) async {
         guard let id = state.pending?.id else { return }
+        deciding = true
+        NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+        defer { deciding = false }
         do {
             try await client.decide(id: id, action: action)
             await refresh()
@@ -66,6 +71,7 @@ final class AppModel: ObservableObject {
         do {
             let n = try await client.undo()
             lastUndo = "Restored \(n) file\(n == 1 ? "" : "s")"
+            notice = lastUndo
             await refresh()
         } catch {
             daemonError = error.localizedDescription
@@ -102,6 +108,8 @@ final class AppModel: ObservableObject {
             proc.waitUntilExit()
             if proc.terminationStatus != 0 {
                 daemonError = "install failed"
+            } else {
+                notice = "Hooks installed"
             }
         } catch {
             daemonError = error.localizedDescription
@@ -154,8 +162,8 @@ final class AppModel: ObservableObject {
     private func presentApproval() {
         NSApp.activate(ignoringOtherApps: true)
         if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "approval" }) {
+            LeashChrome.approval(window)
             window.makeKeyAndOrderFront(nil)
-            window.level = .floating
             return
         }
         openApprovalWindow()
@@ -163,14 +171,10 @@ final class AppModel: ObservableObject {
 
     private func openApprovalWindow() {
         for scene in NSApp.windows where scene.title == "Leash" {
+            LeashChrome.approval(scene)
             scene.makeKeyAndOrderFront(nil)
-            scene.level = .floating
         }
         NSApp.activate(ignoringOtherApps: true)
-        if let env = ProcessInfo.processInfo.environment["APP_SANDBOX_CONTAINER_ID"] {
-            _ = env
-        }
-        // SwiftUI Window is opened via openWindow in the view; post a note.
         NotificationCenter.default.post(name: .leashShowApproval, object: nil)
     }
 }

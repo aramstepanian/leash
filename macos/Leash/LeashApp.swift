@@ -15,18 +15,18 @@ struct LeashApp: App {
                     app.start()
                 }
         } label: {
-            MenuBarIcon(status: app.state.status, hasPending: app.state.pending != nil)
+            LeashMenuBarLabel(pending: app.state.pending != nil)
         }
-        .menuBarExtraStyle(.menu)
+        .menuBarExtraStyle(.window)
 
         Window("Leash", id: "approval") {
             ApprovalView()
                 .environmentObject(app)
-                .frame(width: 440)
         }
         .windowStyle(.hiddenTitleBar)
         .windowResizability(.contentSize)
         .defaultPosition(.center)
+        .defaultSize(width: 432, height: 320)
     }
 }
 
@@ -34,24 +34,32 @@ struct LeashApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     var model: AppModel?
 
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.accessory)
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         model?.stop()
     }
 }
 
-struct MenuBarIcon: View {
-    var status: String
-    var hasPending: Bool
+struct LeashMenuBarLabel: View {
+    var pending: Bool
+    @State private var pulse = false
 
     var body: some View {
-        Image(systemName: icon)
-            .symbolRenderingMode(.hierarchical)
-            .foregroundStyle(hasPending ? Color.red : Color.primary)
-    }
-
-    private var icon: String {
-        if hasPending { return "hand.raised.fill" }
-        if status == "watching" { return "link" }
-        return "link"
+        LeashMark(filled: pending, tint: .primary)
+            .opacity(pending && pulse ? 0.35 : 1)
+            .onAppear {
+                pulse = pending
+            }
+            .onChange(of: pending) { _, isPending in
+                pulse = isPending
+            }
+            .animation(
+                pending ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true) : .easeOut(duration: 0.15),
+                value: pulse
+            )
+            .accessibilityLabel(pending ? "Leash — waiting on you" : "Leash")
     }
 }
