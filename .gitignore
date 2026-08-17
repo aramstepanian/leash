@@ -1,0 +1,9 @@
+/bin/
+/dist/
+*.app
+DerivedData/
+.DS_Store
+*.xcuserstate
+xcuserdata/
+.env
+/internal/install/testdata/tmp/
