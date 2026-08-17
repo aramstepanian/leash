@@ -14,8 +14,7 @@ struct ApprovalView: View {
             }
         }
         .frame(width: 432)
-        .background(LeashPaint.paper)
-        .containerBackground(LeashPaint.paper, for: .window)
+        .leashWindowFill()
         .background(WindowAccess(configure: LeashChrome.approval))
         .onAppear {
             app.start()
@@ -27,12 +26,14 @@ struct ApprovalView: View {
         .onChange(of: app.state.pending?.id) { _, new in
             if new == nil { dismiss() }
         }
-        .onExitCommand { dismiss() }
+        .onExitCommand {
+            Task { await app.decide("kill") }
+        }
     }
 
     private var empty: some View {
         VStack(spacing: 10) {
-            LeashMark(filled: true, tint: LeashPaint.muted)
+            LeashMark(filled: true, tint: LeashPaint.muted, size: 14)
             Text("Caught up")
                 .font(.system(size: 15, weight: .medium))
                 .foregroundStyle(LeashPaint.ink)
@@ -66,7 +67,7 @@ struct ApprovalView: View {
 
     private func header(_ pending: PendingApproval, kind: LeashKind) -> some View {
         HStack(spacing: 8) {
-            LeashMark(filled: true, tint: kind.color)
+            LeashMark(filled: true, tint: kind.color, size: 14)
             LeashWordmark()
             Spacer()
             if !pending.tool.isEmpty {
@@ -164,10 +165,10 @@ struct ApprovalView: View {
         Button(action: action) {
             HStack(spacing: 8) {
                 Text(title)
-                    .font(.system(size: 13, weight: kind == .allow ? .semibold : .medium))
-                KeyHint(keys: hint, inverted: kind == .allow)
+                    .font(.system(size: 13, weight: kind == .always ? .medium : .semibold))
+                KeyHint(keys: hint, on: hintTone(kind))
             }
-            .padding(.horizontal, kind == .allow ? 14 : 11)
+            .padding(.horizontal, kind == .always ? 11 : 14)
             .frame(height: 34)
             .background(actionFill(kind), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .overlay(
@@ -181,7 +182,7 @@ struct ApprovalView: View {
 
     private func actionFill(_ kind: ActionKind) -> Color {
         switch kind {
-        case .kill: return LeashPaint.vermillion.opacity(0.10)
+        case .kill: return LeashPaint.vermillion
         case .always: return LeashPaint.faint
         case .allow: return LeashPaint.ink
         }
@@ -189,9 +190,17 @@ struct ApprovalView: View {
 
     private func actionInk(_ kind: ActionKind) -> Color {
         switch kind {
-        case .kill: return LeashPaint.vermillion
+        case .kill: return LeashPaint.bone
         case .always: return LeashPaint.ink
         case .allow: return LeashPaint.paper
+        }
+    }
+
+    private func hintTone(_ kind: ActionKind) -> KeyHint.Tone {
+        switch kind {
+        case .kill: return .vermillion
+        case .always: return .paper
+        case .allow: return .ink
         }
     }
 

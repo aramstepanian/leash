@@ -3,7 +3,6 @@ import SwiftUI
 
 struct MenuBarView: View {
     @EnvironmentObject private var app: AppModel
-    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -52,13 +51,9 @@ struct MenuBarView: View {
         }
         .padding(10)
         .frame(width: 300)
-        .background(LeashPaint.paper)
-        .containerBackground(LeashPaint.paper, for: .window)
+        .leashWindowFill()
         .background(WindowAccess(configure: LeashChrome.menu))
         .onAppear { app.start() }
-        .onReceive(NotificationCenter.default.publisher(for: .leashShowApproval)) { _ in
-            openWindow(id: "approval")
-        }
     }
 
     private var statusHeader: some View {
@@ -67,7 +62,7 @@ struct MenuBarView: View {
                 Circle()
                     .fill(statusTint.opacity(0.14))
                     .frame(width: 28, height: 28)
-                LeashMark(filled: app.state.pending != nil || app.state.status == "watching", tint: statusTint)
+                LeashMark(filled: app.state.pending != nil || app.state.status == "watching", tint: statusTint, size: 14)
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(statusTitle)
@@ -90,7 +85,7 @@ struct MenuBarView: View {
     private func pendingRow(_ pending: PendingApproval) -> some View {
         let kind = LeashKind(pending.kind)
         return Button {
-            openWindow(id: "approval")
+            ApprovalHUD.shared.show(model: app)
         } label: {
             HStack(spacing: 10) {
                 RoundedRectangle(cornerRadius: 2, style: .continuous)

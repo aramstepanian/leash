@@ -4,6 +4,8 @@ import Foundation
 
 @MainActor
 final class AppModel: ObservableObject {
+    static let shared = AppModel()
+
     @Published var state: LeashState = .empty
     @Published var daemonError: String?
     @Published var lastUndo: String?
@@ -47,6 +49,7 @@ final class AppModel: ObservableObject {
             }
             if next.pending == nil {
                 lastPendingID = nil
+                ApprovalHUD.shared.hide()
             }
         } catch {
             state = .empty
@@ -160,25 +163,6 @@ final class AppModel: ObservableObject {
     }
 
     private func presentApproval() {
-        NSApp.activate(ignoringOtherApps: true)
-        if let window = NSApp.windows.first(where: { $0.identifier?.rawValue == "approval" }) {
-            LeashChrome.approval(window)
-            window.makeKeyAndOrderFront(nil)
-            return
-        }
-        openApprovalWindow()
+        ApprovalHUD.shared.show(model: self)
     }
-
-    private func openApprovalWindow() {
-        for scene in NSApp.windows where scene.title == "Leash" {
-            LeashChrome.approval(scene)
-            scene.makeKeyAndOrderFront(nil)
-        }
-        NSApp.activate(ignoringOtherApps: true)
-        NotificationCenter.default.post(name: .leashShowApproval, object: nil)
-    }
-}
-
-extension Notification.Name {
-    static let leashShowApproval = Notification.Name("leashShowApproval")
 }

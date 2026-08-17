@@ -1,10 +1,16 @@
 # Leash
 
+<img src="docs/shots/icon.png" width="72" alt="Leash clip-and-strap mark">
+
 Seatbelt for coding agents.
 
-A Mac menu bar app that pops a native **Allow / Always / Kill** sheet when a coding agent is about to run something dangerous, and can **undo the last burst of file changes**.
+A Mac menu bar app that pops a native **Allow / Always / Kill** panel when a coding agent is about to run something dangerous, and can **undo the last burst of file changes**.
 
 Works with **Cursor**, **OpenCode**, **Claude Code**, **Codex**, and any custom agent that can call a hook. Local only. No account. No model.
+
+<p align="center">
+  <img src="docs/shots/approval.png" width="432" alt="Leash approval panel for rm -rf ./dist">
+</p>
 
 ## What it does
 
@@ -23,21 +29,23 @@ make install          # builds ~/.leash/bin/leash and writes hooks
 open macos/Leash.xcodeproj
 ```
 
-Run the **Leash** target. The menu bar icon appears (link / raised hand).
+Run the **Leash** target. A clip-and-strap mark appears in the menu bar.
 
-1. **Watch folder…** — pick the repo you vibe-code in.
-2. Leave Leash running.
+1. **Watch folder** — pick the repo you vibe-code in.
+2. Leave Leash running. It starts the local daemon for you.
 3. Use Cursor, OpenCode, `claude`, or `codex` as usual.
-4. When something scary is about to run, the sheet appears.
-   - **Kill** — Esc or ⌘.
+4. When something scary is about to run, the panel appears.
+   - **Kill** — Esc
    - **Allow** — Return
-   - **Always** — ⌘Return (saves a rule)
+   - **Always** — ⌘Return (exact command/path match, not a prefix)
 
 Record the demo without waiting for a real agent:
 
 ```bash
-~/.leash/bin/leash demo 'rm -rf ./dist'
+~/.leash/bin/leash demo
 ```
+
+That fakes a `Bash` call of `rm -rf ./dist` and blocks until you decide.
 
 ## CLI (no UI)
 
@@ -48,7 +56,7 @@ make leash
 ./bin/leash serve          # in one terminal
 ./bin/leash install
 ./bin/leash watch .
-./bin/leash demo 'rm -rf ./dist'   # blocks until you decide
+./bin/leash demo           # blocks until you decide
 # other terminal:
 ./bin/leash status
 ./bin/leash decide <id> kill
@@ -96,7 +104,7 @@ macos/Leash/         SwiftUI menu bar + approval panel
 Mute. One take.
 
 1. Terminal: agent wants `rm -rf` or `cat .env`
-2. Native sheet, Kill
+2. Native panel, Kill
 3. Menu bar: undo last burst (optional)
 
 Caption: *Seatbelt for coding agents. Local. Allow / Kill / Undo.*

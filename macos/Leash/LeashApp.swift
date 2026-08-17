@@ -4,42 +4,40 @@ import SwiftUI
 @main
 struct LeashApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
-    @StateObject private var app = AppModel()
+    @ObservedObject private var app = AppModel.shared
 
     var body: some Scene {
         MenuBarExtra {
             MenuBarView()
                 .environmentObject(app)
-                .onAppear {
-                    delegate.model = app
-                    app.start()
-                }
         } label: {
             LeashMenuBarLabel(pending: app.state.pending != nil)
         }
         .menuBarExtraStyle(.window)
-
-        Window("Leash", id: "approval") {
-            ApprovalView()
-                .environmentObject(app)
-        }
-        .windowStyle(.hiddenTitleBar)
-        .windowResizability(.contentSize)
-        .defaultPosition(.center)
-        .defaultSize(width: 432, height: 320)
     }
 }
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    var model: AppModel?
-
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        AppModel.shared.start()
+        if let dir = ProcessInfo.processInfo.environment["LEASH_SHOT"], !dir.isEmpty {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                let url = URL(fileURLWithPath: dir).appendingPathComponent("menubar.png")
+                LeashShot.swiftUI(
+                    MenuBarView()
+                        .environmentObject(AppModel.shared)
+                        .environment(\.colorScheme, .dark)
+                        .frame(width: 300),
+                    to: url
+                )
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        model?.stop()
+        AppModel.shared.stop()
     }
 }
 
@@ -48,7 +46,9 @@ struct LeashMenuBarLabel: View {
     @State private var pulse = false
 
     var body: some View {
-        LeashMark(filled: pending, tint: .primary)
+        Image(pending ? "LeashMenuFilled" : "LeashMenu")
+            .renderingMode(.template)
+            .interpolation(.high)
             .opacity(pending && pulse ? 0.35 : 1)
             .onAppear {
                 pulse = pending

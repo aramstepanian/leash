@@ -124,6 +124,9 @@ func TestSkipSnapshot(t *testing.T) {
 	if !SkipSnapshot("app/node_modules/pkg/index.js") {
 		t.Fatal("should skip node_modules")
 	}
+	if !SkipSnapshot("macos/DerivedData/Build/Products/Debug/Leash.app") {
+		t.Fatal("should skip DerivedData")
+	}
 	if SkipSnapshot("app/src/index.js") {
 		t.Fatal("should not skip src")
 	}

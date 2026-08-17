@@ -2,22 +2,25 @@ import AppKit
 import SwiftUI
 
 enum LeashPaint {
-    static let paper = Color(
-        light: NSColor(srgbRed: 0.957, green: 0.945, blue: 0.925, alpha: 1),
-        dark: NSColor(srgbRed: 0.110, green: 0.106, blue: 0.098, alpha: 1)
-    )
+    static let paperNS = NSColor(name: nil, dynamicProvider: { appearance in
+        appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            ? NSColor(srgbRed: 0.110, green: 0.106, blue: 0.098, alpha: 1)
+            : NSColor(srgbRed: 0.957, green: 0.945, blue: 0.925, alpha: 1)
+    })
+    static let paper = Color(nsColor: paperNS)
     static let ink = Color(
         light: NSColor(srgbRed: 0.102, green: 0.098, blue: 0.086, alpha: 1),
         dark: NSColor(srgbRed: 0.949, green: 0.937, blue: 0.910, alpha: 1)
     )
     static let muted = ink.opacity(0.52)
     static let faint = ink.opacity(0.08)
-    static let hairline = ink.opacity(0.10)
+    static let hairline = ink.opacity(0.14)
     static let well = Color(
         light: NSColor(srgbRed: 0.922, green: 0.906, blue: 0.878, alpha: 1),
         dark: NSColor(srgbRed: 0.078, green: 0.075, blue: 0.070, alpha: 1)
     )
     static let vermillion = Color(nsColor: NSColor(srgbRed: 0.839, green: 0.271, blue: 0.196, alpha: 1))
+    static let bone = Color(nsColor: NSColor(srgbRed: 0.969, green: 0.953, blue: 0.933, alpha: 1))
     static let amber = Color(nsColor: NSColor(srgbRed: 0.788, green: 0.518, blue: 0.165, alpha: 1))
     static let steel = Color(nsColor: NSColor(srgbRed: 0.353, green: 0.478, blue: 0.659, alpha: 1))
 }
@@ -56,24 +59,28 @@ enum LeashKind {
 struct LeashMark: View {
     var filled: Bool = false
     var tint: Color = LeashPaint.ink
+    var size: CGFloat = 16
 
     var body: some View {
-        HStack(spacing: 2.5) {
+        let line = max(1.4, size * 0.12)
+        let circle = size * 0.50
+        let strap = size * 0.30
+        let gap = line * 0.55
+        HStack(spacing: gap) {
             ZStack {
-                Circle().strokeBorder(tint, lineWidth: 1.5)
+                Circle().strokeBorder(tint, lineWidth: line)
                 if filled {
                     Circle()
                         .fill(tint)
-                        .padding(2.4)
+                        .padding(line * 0.95)
                 }
             }
-            .frame(width: 9, height: 9)
+            .frame(width: circle, height: circle)
             Capsule()
                 .fill(tint)
-                .frame(width: 7, height: 1.5)
-                .offset(y: 0.2)
+                .frame(width: strap, height: line)
         }
-        .frame(width: 16, height: 16)
+        .frame(width: size, height: size)
         .accessibilityHidden(true)
     }
 }
@@ -90,18 +97,33 @@ struct LeashWordmark: View {
 
 struct KeyHint: View {
     var keys: String
-    var inverted: Bool = false
+    var on: Tone = .paper
+
+    enum Tone { case paper, ink, vermillion }
 
     var body: some View {
         Text(keys)
             .font(.system(size: 10, weight: .medium, design: .monospaced))
-            .foregroundStyle(inverted ? LeashPaint.paper.opacity(0.72) : LeashPaint.muted)
+            .foregroundStyle(foreground)
             .padding(.horizontal, 5)
             .padding(.vertical, 2)
-            .background(
-                inverted ? LeashPaint.paper.opacity(0.14) : LeashPaint.faint,
-                in: RoundedRectangle(cornerRadius: 4, style: .continuous)
-            )
+            .background(background, in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+    }
+
+    private var foreground: Color {
+        switch on {
+        case .paper: return LeashPaint.muted
+        case .ink: return LeashPaint.paper.opacity(0.72)
+        case .vermillion: return LeashPaint.bone.opacity(0.82)
+        }
+    }
+
+    private var background: Color {
+        switch on {
+        case .paper: return LeashPaint.faint
+        case .ink: return LeashPaint.paper.opacity(0.14)
+        case .vermillion: return LeashPaint.bone.opacity(0.18)
+        }
     }
 }
 
@@ -129,44 +151,83 @@ struct Hairline: View {
 
 enum LeashChrome {
     static func approval(_ window: NSWindow) {
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
+        stripTitlebar(window)
         window.isMovableByWindowBackground = true
-        window.standardWindowButton(.closeButton)?.isHidden = true
-        window.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        window.standardWindowButton(.zoomButton)?.isHidden = true
         window.hasShadow = true
         window.level = .floating
         window.collectionBehavior.insert(.fullScreenAuxiliary)
-        window.backgroundColor = .clear
-        window.isOpaque = false
+        window.backgroundColor = LeashPaint.paperNS
+        window.isOpaque = true
     }
 
     static func menu(_ window: NSWindow) {
+        stripTitlebar(window)
+        window.hasShadow = true
+        window.backgroundColor = LeashPaint.paperNS
+        window.isOpaque = true
+    }
+
+    private static func stripTitlebar(_ window: NSWindow) {
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
+        window.styleMask.insert(.fullSizeContentView)
         window.standardWindowButton(.closeButton)?.isHidden = true
         window.standardWindowButton(.miniaturizeButton)?.isHidden = true
         window.standardWindowButton(.zoomButton)?.isHidden = true
-        window.backgroundColor = .clear
-        window.isOpaque = false
-        window.hasShadow = true
+        window.standardWindowButton(.closeButton)?.superview?.isHidden = true
+    }
+}
+
+struct LeashWindowFill: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 15.0, *) {
+            content
+                .background(LeashPaint.paper.ignoresSafeArea())
+                .containerBackground(LeashPaint.paper, for: .window)
+        } else {
+            content
+                .background(LeashPaint.paper.ignoresSafeArea())
+        }
+    }
+}
+
+extension View {
+    func leashWindowFill() -> some View {
+        modifier(LeashWindowFill())
     }
 }
 
 struct WindowAccess: NSViewRepresentable {
     var configure: (NSWindow) -> Void
 
-    func makeNSView(context: Context) -> NSView {
-        let view = NSView(frame: .zero)
-        view.isHidden = true
+    func makeNSView(context: Context) -> WindowProbe {
+        let view = WindowProbe()
+        view.configure = configure
         return view
     }
 
-    func updateNSView(_ nsView: NSView, context: Context) {
-        DispatchQueue.main.async {
-            guard let window = nsView.window else { return }
-            configure(window)
+    func updateNSView(_ nsView: WindowProbe, context: Context) {
+        nsView.configure = configure
+        nsView.apply()
+    }
+}
+
+final class WindowProbe: NSView {
+    var configure: (NSWindow) -> Void = { _ in }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        apply()
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    func apply() {
+        guard let window else { return }
+        configure(window)
+        DispatchQueue.main.async { [weak self] in
+            guard let window = self?.window else { return }
+            self?.configure(window)
         }
     }
 }
@@ -204,5 +265,30 @@ extension Color {
         self.init(nsColor: NSColor(name: nil, dynamicProvider: { appearance in
             appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? dark : light
         }))
+    }
+}
+
+enum LeashShot {
+    static func window(_ view: NSView, to url: URL) {
+        let bounds = view.bounds
+        guard bounds.width > 1, bounds.height > 1,
+              let rep = view.bitmapImageRepForCachingDisplay(in: bounds)
+        else { return }
+        view.cacheDisplay(in: bounds, to: rep)
+        guard let png = rep.representation(using: .png, properties: [:]) else { return }
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? png.write(to: url)
+    }
+
+    @MainActor
+    static func swiftUI<V: View>(_ view: V, to url: URL) {
+        let renderer = ImageRenderer(content: view)
+        renderer.scale = 2
+        guard let ns = renderer.nsImage,
+              let tiff = ns.tiffRepresentation,
+              let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:])
+        else { return }
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? png.write(to: url)
     }
 }

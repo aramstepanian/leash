@@ -7,3 +7,7 @@ DerivedData/
 xcuserdata/
 .env
 /internal/install/testdata/tmp/
+docs/shots/desktop*.png
+docs/shots/approval-chrome.png
+docs/shots/menumark.png
+/scripts/

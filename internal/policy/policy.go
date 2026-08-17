@@ -66,6 +66,7 @@ var secretPathBits = []string{
 var skipSnap = []string{
 	"node_modules", ".git", "dist", "build", ".next", "target",
 	"vendor", ".venv", "venv", "__pycache__", ".turbo", "coverage",
+	"DerivedData", "xcuserdata",
 }
 
 // Assess decides whether to prompt. watchRoot may be empty.
