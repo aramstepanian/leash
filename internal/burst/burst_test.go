@@ -140,3 +140,60 @@ func TestNothingToUndo(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestTwoRootsKeepSeparateBursts(t *testing.T) {
+	rootA := t.TempDir()
+	rootB := t.TempDir()
+	fileA := filepath.Join(rootA, "a.txt")
+	fileB := filepath.Join(rootB, "b.txt")
+	if err := os.WriteFile(fileA, []byte("a-old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fileB, []byte("b-old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store := NewStore(time.Minute)
+	bA := store.Begin(rootA, "a")
+	bA.Touch([]string{fileA})
+	bB := store.Begin(rootB, "b")
+	bB.Touch([]string{fileB})
+	if bA == bB {
+		t.Fatal("two projects must not share a burst")
+	}
+
+	if err := os.WriteFile(fileA, []byte("a-new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fileB, []byte("b-new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := store.Undo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("first undo restored %d, want 1 (most recent root)", n)
+	}
+	gotB, _ := os.ReadFile(fileB)
+	if string(gotB) != "b-old" {
+		t.Fatalf("B should restore first: %q", gotB)
+	}
+	gotA, _ := os.ReadFile(fileA)
+	if string(gotA) != "a-new" {
+		t.Fatalf("A must stay changed until its own undo: %q", gotA)
+	}
+
+	n, err = store.Undo()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("second undo restored %d", n)
+	}
+	gotA, _ = os.ReadFile(fileA)
+	if string(gotA) != "a-old" {
+		t.Fatalf("A after second undo: %q", gotA)
+	}
+}

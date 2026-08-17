@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	version     = "0.3.0"
+	version     = "0.4.0"
 	maxHookBody = 1 << 20
 )
 
@@ -73,8 +73,9 @@ func usage() {
   leash hook               Called by any hooked agent (reads stdin JSON)
   leash install            Wire Cursor, Claude Code, Codex, OpenCode
   leash uninstall          Remove those hooks / plugin
-  leash watch [path]       Folder to protect (default: cwd)
-  leash undo               Restore files from the last agent burst
+  leash watch [path]       Add a folder to protect (default: cwd)
+  leash watch --remove [path]
+  leash undo               Restore files from the last burst in that folder
   leash status             Show daemon + pending approval
   leash demo [command]     Fake a dangerous hook (for recording)
   leash decide ID allow|always|kill
@@ -184,17 +185,27 @@ func cmdUninstall() error {
 }
 
 func cmdWatch() error {
+	remove := false
 	path := ""
-	if len(os.Args) > 2 {
-		path = os.Args[2]
-	} else {
+	for _, a := range os.Args[2:] {
+		if a == "-d" || a == "--remove" {
+			remove = true
+			continue
+		}
+		path = a
+	}
+	if path == "" {
 		path, _ = os.Getwd()
 	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return err
 	}
-	return rpc("POST", "/v1/watch", map[string]string{"path": abs}, nil)
+	body := map[string]any{"path": abs}
+	if remove {
+		body["remove"] = true
+	}
+	return rpc("POST", "/v1/watch", body, nil)
 }
 
 func cmdUndo() error {
@@ -218,15 +229,30 @@ func cmdStatus() error {
 		return err
 	}
 	fmt.Printf("daemon: on  :%d  %s\n", st.Port, st.Status)
-	if st.WatchRoot != "" {
-		fmt.Printf("watch:  %s\n", st.WatchRoot)
+	roots := st.WatchRoots
+	if len(roots) == 0 && st.WatchRoot != "" {
+		roots = []string{st.WatchRoot}
+	}
+	for _, r := range roots {
+		fmt.Printf("watch:  %s\n", r)
+	}
+	if st.Waiting > 1 {
+		fmt.Printf("waiting: %d\n", st.Waiting)
 	}
 	if st.Pending != nil {
-		fmt.Printf("pending %s  %s\n%s\n", st.Pending.ID, st.Pending.Title, st.Pending.Detail)
+		who := st.Pending.Title
+		if st.Pending.Agent != "" {
+			who = st.Pending.Agent + " · " + st.Pending.Title
+		}
+		fmt.Printf("pending %s  %s\n%s\n", st.Pending.ID, who, st.Pending.Detail)
 		fmt.Println("decide: leash decide", st.Pending.ID, "allow|always|kill")
 	}
 	if st.Burst != nil {
-		fmt.Printf("burst:  %d files\n", st.Burst.FileCount)
+		if st.Burst.Root != "" {
+			fmt.Printf("burst:  %d files in %s\n", st.Burst.FileCount, st.Burst.Root)
+		} else {
+			fmt.Printf("burst:  %d files\n", st.Burst.FileCount)
+		}
 	}
 	return nil
 }
@@ -252,6 +278,7 @@ func cmdDemo() error {
 		"cwd":             cwd,
 		"hook_event_name": "PreToolUse",
 		"tool_name":       "Bash",
+		"agent":           "Demo",
 		"tool_input":      map[string]string{"command": cmd},
 	})
 	cfg, err := config.Load()

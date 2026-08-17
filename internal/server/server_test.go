@@ -274,8 +274,157 @@ func TestWatchMustBeDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
 	if res.StatusCode != 200 {
+		res.Body.Close()
 		t.Fatalf("real dir status %d", res.StatusCode)
 	}
+
+	var st State
+	if err := json.NewDecoder(res.Body).Decode(&st); err != nil {
+		res.Body.Close()
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if len(st.WatchRoots) != 1 || st.WatchRoots[0] != root {
+		t.Fatalf("watchRoots %+v", st.WatchRoots)
+	}
+
+	other := t.TempDir()
+	body, _ = json.Marshal(map[string]any{"path": other})
+	req, _ = http.NewRequest(http.MethodPost, ts.URL+"/v1/watch", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer secret")
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.NewDecoder(res.Body).Decode(&st); err != nil {
+		res.Body.Close()
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if len(st.WatchRoots) != 2 {
+		t.Fatalf("add should keep both folders, got %+v", st.WatchRoots)
+	}
+
+	body, _ = json.Marshal(map[string]any{"path": root, "remove": true})
+	req, _ = http.NewRequest(http.MethodPost, ts.URL+"/v1/watch", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer secret")
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if err := json.NewDecoder(res.Body).Decode(&st); err != nil {
+		t.Fatal(err)
+	}
+	if len(st.WatchRoots) != 1 || st.WatchRoots[0] != other {
+		t.Fatalf("remove: %+v", st.WatchRoots)
+	}
+}
+
+func TestTwoAgentsQueue(t *testing.T) {
+	t.Setenv("LEASH_HOME", t.TempDir())
+	rootA := t.TempDir()
+	rootB := t.TempDir()
+	s := New(config.File{Token: "t", WatchRoots: []string{rootA, rootB}})
+	s.AskTimeout = 3 * time.Second
+
+	doneA := make(chan []byte, 1)
+	doneB := make(chan []byte, 1)
+	go func() {
+		out, err := s.HandleHook(context.Background(), []byte(`{
+			"hook_event_name": "beforeShellExecution",
+			"command": "rm -rf ./dist",
+			"cwd": `+jsonString(rootA)+`
+		}`))
+		if err != nil {
+			doneA <- []byte(err.Error())
+			return
+		}
+		doneA <- out
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if s.Snapshot().Pending != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if s.Snapshot().Pending == nil {
+		t.Fatal("first pending never appeared")
+	}
+
+	go func() {
+		out, err := s.HandleHook(context.Background(), []byte(`{
+			"protocol": "leash",
+			"hook_event_name": "pre_tool",
+			"agent": "OpenCode",
+			"cwd": `+jsonString(rootB)+`,
+			"tool_name": "bash",
+			"tool_input": {"command": "sudo rm -rf /"}
+		}`))
+		if err != nil {
+			doneB <- []byte(err.Error())
+			return
+		}
+		doneB <- out
+	}()
+
+	deadline = time.Now().Add(2 * time.Second)
+	var st State
+	for time.Now().Before(deadline) {
+		st = s.Snapshot()
+		if st.Waiting == 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if st.Waiting != 2 || st.Pending == nil || len(st.Queue) != 1 {
+		t.Fatalf("want 2 waiting, got waiting=%d pending=%v queue=%d", st.Waiting, st.Pending, len(st.Queue))
+	}
+	if st.Pending.Agent != "Cursor" {
+		t.Fatalf("oldest should be Cursor, got %q", st.Pending.Agent)
+	}
+	if st.Queue[0].Agent != "OpenCode" {
+		t.Fatalf("queued should be OpenCode, got %q", st.Queue[0].Agent)
+	}
+	if st.Pending.Root != rootA {
+		t.Fatalf("pending root %q want %q", st.Pending.Root, rootA)
+	}
+
+	if err := s.Resolve(st.Pending.ID, hookfmt.DecisionKill); err != nil {
+		t.Fatal(err)
+	}
+	outA := <-doneA
+	if !bytes.Contains(outA, []byte(`"deny"`)) && !bytes.Contains(outA, []byte(`"permission":"deny"`)) {
+		t.Fatalf("cursor deny: %s", outA)
+	}
+
+	deadline = time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		st = s.Snapshot()
+		if st.Pending != nil && st.Pending.Agent == "OpenCode" {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if st.Pending == nil || st.Pending.Agent != "OpenCode" {
+		t.Fatalf("OpenCode should move to the panel, got %+v", st.Pending)
+	}
+	if st.Waiting != 1 {
+		t.Fatalf("waiting %d", st.Waiting)
+	}
+	if err := s.Resolve(st.Pending.ID, hookfmt.DecisionKill); err != nil {
+		t.Fatal(err)
+	}
+	outB := <-doneB
+	if !bytes.Contains(outB, []byte(`"deny"`)) {
+		t.Fatalf("opencode deny: %s", outB)
+	}
+}
+
+func jsonString(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
 }

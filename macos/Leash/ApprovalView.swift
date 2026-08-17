@@ -53,9 +53,15 @@ struct ApprovalView: View {
                 .padding(.top, 18)
             commandWell(pending, kind: kind)
                 .padding(.top, 16)
-            if let cwd = pending.cwd, !cwd.isEmpty {
-                pathRow(cwd)
+            if let folder = pending.root ?? pending.cwd, !folder.isEmpty {
+                pathRow(folder)
                     .padding(.top, 10)
+            }
+            if app.state.waitingCount > 1 {
+                Text(queueNote)
+                    .font(.system(size: 11))
+                    .foregroundStyle(LeashPaint.muted)
+                    .padding(.top, 8)
             }
             actions
                 .padding(.top, 22)
@@ -70,6 +76,11 @@ struct ApprovalView: View {
             LeashMark(filled: true, tint: kind.color, size: 14)
             LeashWordmark()
             Spacer()
+            if let agent = pending.agent, !agent.isEmpty {
+                Text(agent)
+                    .font(.system(size: 11, weight: .medium, design: .monospaced))
+                    .foregroundStyle(LeashPaint.muted)
+            }
             if !pending.tool.isEmpty {
                 Text(pending.tool)
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
@@ -131,6 +142,12 @@ struct ApprovalView: View {
                 .truncationMode(.middle)
         }
         .foregroundStyle(LeashPaint.muted)
+    }
+
+    private var queueNote: String {
+        let n = app.state.waitingCount - 1
+        if n == 1 { return "1 more waiting." }
+        return "\(n) more waiting."
     }
 
     private var actions: some View {

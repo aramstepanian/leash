@@ -86,7 +86,7 @@ final class AppModel: ObservableObject {
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.message = "Folder Leash should protect"
+        panel.message = "Add a folder Leash should protect"
         guard panel.runModal() == .OK, let url = panel.url else { return }
         Task {
             do {

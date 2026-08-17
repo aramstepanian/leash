@@ -3,6 +3,7 @@ package hookfmt
 import (
 	"encoding/json"
 	"maps"
+	"os"
 	"strings"
 )
 
@@ -22,6 +23,7 @@ type Event struct {
 	ToolName      string
 	ToolInput     map[string]any
 	Dialect       Dialect
+	Agent         string
 }
 
 func Parse(data []byte) (Event, error) {
@@ -35,6 +37,10 @@ func Parse(data []byte) (Event, error) {
 		HookEventName: firstStr(raw, "hook_event_name", "hookEventName"),
 		ToolName:      firstStr(raw, "tool_name", "tool"),
 		Dialect:       detectDialect(raw),
+		Agent:         firstStr(raw, "agent"),
+	}
+	if ev.Agent == "" {
+		ev.Agent = strings.TrimSpace(os.Getenv("LEASH_AGENT"))
 	}
 	if ev.CWD == "" {
 		if roots, ok := raw["workspace_roots"].([]any); ok && len(roots) > 0 {
@@ -129,6 +135,21 @@ func firstStr(raw map[string]any, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+// AgentLabel is a short name for the HUD: Cursor, Claude, OpenCode, or the payload's agent field.
+func AgentLabel(ev Event) string {
+	if s := strings.TrimSpace(ev.Agent); s != "" {
+		return s
+	}
+	switch ev.Dialect {
+	case DialectCursor:
+		return "Cursor"
+	case DialectClaude:
+		return "Claude"
+	default:
+		return "Agent"
+	}
 }
 
 func IsPre(ev Event) bool {

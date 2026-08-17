@@ -31,13 +31,13 @@ open macos/Leash.xcodeproj
 
 Run the **Leash** target. A clip-and-strap mark appears in the menu bar.
 
-1. **Watch folder** — pick the repo you vibe-code in.
+1. **Watch folders** — pick the repos you vibe-code in. Leash also learns a folder when an agent first runs there.
 2. Leave Leash running. It starts the local daemon for you.
-3. Use Cursor, OpenCode, `claude`, or `codex` as usual.
+3. Use Cursor, OpenCode, `claude`, or `codex` as usual — even several at once, in several folders.
 4. When something scary is about to run, the panel appears.
    - **Kill** — Esc
    - **Allow** — Return
-   - **Always** — ⌘Return (exact command/path match, not a prefix)
+   - **Always** — ⌘Return (exact command/path match in that folder, not a prefix)
 
 Record the demo without waiting for a real agent:
 
@@ -83,9 +83,9 @@ Home-grown agents: POST the same JSON to `http://127.0.0.1:17332/v1/hook` or spa
 |---|---|
 | Danger | `rm -rf`, `sudo`, `curl \| sh`, `git push --force`, `git reset --hard`, `chmod 777`, db reset |
 | Secret | `.env`, `id_rsa`, `*.pem`, `.npmrc`, `~/.aws/credentials` |
-| Outside | write/edit path outside the watched folder |
+| Outside | write/edit path outside that project's watched folder |
 
-Normal source edits and read-only commands do **not** prompt. They still snapshot when they mutate, so undo works.
+Normal source edits and read-only commands do **not** prompt. They still snapshot when they mutate, so undo works. Undo restores the last burst in the folder that was touched most recently — two projects stay separate.
 
 ## Layout
 

@@ -39,6 +39,7 @@ Write JSON to stdin, read JSON from stdout. Exit 0.
 {
   "protocol": "leash",
   "hook_event_name": "pre_tool",
+  "agent": "MyAgent",
   "cwd": "/absolute/project/root",
   "tool_name": "Bash",
   "tool_input": { "command": "rm -rf ./dist" }
@@ -46,6 +47,14 @@ Write JSON to stdin, read JSON from stdout. Exit 0.
 ```
 
 `tool_name` can be `Bash` / `Shell` / `bash`, `Write` / `write`, `Edit` / `edit`, `Read` / `read`. File tools should put the path in `tool_input.file_path` or `filePath`.
+
+Optional `agent` is a short label for the Mac panel (`OpenCode`, `Codex`, your work agent's name). Cursor and Claude are inferred from the hook dialect if you omit it.
+
+**Always** is scoped to the project folder Leash matched for `cwd`. A rule saved in one repo does not silently allow the same command in another. Older rules with no `root` still match everywhere.
+
+`cwd` picks the project: the most specific watched folder that contains it, or `cwd` itself. Unknown project folders are added to the watch list automatically (not `$HOME` or `/`, and not a nested directory of a folder you already watch).
+
+Undo restores the last burst in the folder that was touched most recently. Two agents in two repos do not share a rewind.
 
 **Response**
 

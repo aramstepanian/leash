@@ -11,14 +11,16 @@ struct MenuBarView: View {
                 .padding(.top, 12)
                 .padding(.bottom, 6)
 
-            if let pending = app.state.pending {
-                pendingRow(pending)
+            ForEach(Array(app.state.allPending.enumerated()), id: \.element.id) { i, pending in
+                pendingRow(pending, queued: i > 0)
                     .padding(.bottom, 6)
+            }
+            if !app.state.allPending.isEmpty {
                 Hairline()
                     .padding(.bottom, 6)
             }
 
-            MenuRow(title: "Watch folder", subtitle: watchSubtitle, symbol: "folder") {
+            MenuRow(title: "Watch folders", subtitle: watchSubtitle, symbol: "folder") {
                 app.pickFolder()
             }
             MenuRow(
@@ -62,7 +64,7 @@ struct MenuBarView: View {
                 Circle()
                     .fill(statusTint.opacity(0.14))
                     .frame(width: 28, height: 28)
-                LeashMark(filled: app.state.pending != nil || app.state.status == "watching", tint: statusTint, size: 14)
+                LeashMark(filled: app.state.waitingCount > 0 || app.state.status == "watching", tint: statusTint, size: 14)
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(statusTitle)
@@ -82,7 +84,7 @@ struct MenuBarView: View {
         .padding(.bottom, 2)
     }
 
-    private func pendingRow(_ pending: PendingApproval) -> some View {
+    private func pendingRow(_ pending: PendingApproval, queued: Bool) -> some View {
         let kind = LeashKind(pending.kind)
         return Button {
             ApprovalHUD.shared.show(model: app)
@@ -92,10 +94,10 @@ struct MenuBarView: View {
                     .fill(kind.color)
                     .frame(width: 2, height: 28)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(pending.title)
+                    Text(pendingHeadline(pending))
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(LeashPaint.ink)
-                    Text("Waiting on you")
+                    Text(queued ? "Queued" : "Waiting on you")
                         .font(.system(size: 11))
                         .foregroundStyle(kind.color)
                 }
@@ -106,13 +108,25 @@ struct MenuBarView: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 8)
-            .background(kind.color.opacity(0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(kind.color.opacity(queued ? 0.06 : 0.10), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
     }
 
+    private func pendingHeadline(_ pending: PendingApproval) -> String {
+        let agent = pending.agent?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !agent.isEmpty && !pending.tool.isEmpty {
+            return "\(agent) · \(pending.tool)"
+        }
+        if !agent.isEmpty {
+            return agent
+        }
+        return pending.title
+    }
+
     private var statusTitle: String {
-        if app.state.pending != nil { return "Needs you" }
+        if app.state.waitingCount > 1 { return "Needs you · \(app.state.waitingCount)" }
+        if app.state.waitingCount == 1 { return "Needs you" }
         if app.daemonError != nil { return "Offline" }
         switch app.state.status {
         case "watching": return "Watching"
@@ -124,35 +138,44 @@ struct MenuBarView: View {
 
     private var statusDetail: String {
         if let pending = app.state.pending {
-            return pending.title
+            return pendingHeadline(pending)
         }
         if let err = app.daemonError {
             return err
         }
-        if let root = app.state.watchRoot, !root.isEmpty {
+        let folders = app.state.folders
+        if folders.count > 1 {
+            return "\(folders.count) folders"
+        }
+        if let root = folders.first, !root.isEmpty {
             return compactPath(root)
         }
         return "Pick a folder to protect"
     }
 
     private var statusTint: Color {
-        if app.state.pending != nil { return LeashPaint.vermillion }
+        if app.state.waitingCount > 0 { return LeashPaint.vermillion }
         if app.daemonError != nil { return LeashPaint.muted }
         if app.state.status == "watching" { return Color(nsColor: NSColor(srgbRed: 0.310, green: 0.545, blue: 0.427, alpha: 1)) }
         return LeashPaint.muted
     }
 
     private var watchSubtitle: String {
-        if let root = app.state.watchRoot, !root.isEmpty {
-            return compactPath(root)
+        let folders = app.state.folders
+        if folders.isEmpty {
+            return "Choose the project folders"
         }
-        return "Choose the project folder"
+        return folders.map(compactPath).joined(separator: " · ")
     }
 
     private var undoSubtitle: String {
         if let burst = app.state.burst {
             let n = burst.fileCount
-            return "\(n) file\(n == 1 ? "" : "s") in the last burst"
+            let files = "\(n) file\(n == 1 ? "" : "s")"
+            if let root = burst.root, !root.isEmpty {
+                return "\(files) in \(URL(fileURLWithPath: root).lastPathComponent)"
+            }
+            return "\(files) in the last burst"
         }
         return "Nothing to restore"
     }

@@ -50,6 +50,9 @@ func TestInstallAndUninstallClaude(t *testing.T) {
 	if !strings.Contains(string(plugin), "/opt/leash/leash") || !strings.Contains(string(plugin), "leash-plugin") {
 		t.Fatalf("missing opencode plugin: %s", plugin)
 	}
+	if !strings.Contains(string(plugin), `agent: "OpenCode"`) {
+		t.Fatalf("opencode plugin should label the agent: %s", plugin)
+	}
 	if err := Install(bin, 540); err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +96,7 @@ func TestInstallQuotesShellButNotOpenCode(t *testing.T) {
 	entry := groups[0].(map[string]any)
 	cmds := entry["hooks"].([]any)
 	cmd := cmds[0].(map[string]any)["command"].(string)
-	if cmd != `"/opt/leash bin/leash" hook` {
+	if cmd != `env LEASH_AGENT=Claude "/opt/leash bin/leash" hook` {
 		t.Fatalf("shell hook should quote the binary, got %q", cmd)
 	}
 	plugin, err := os.ReadFile(filepath.Join(home, ".config", "opencode", "plugins", "leash.js"))

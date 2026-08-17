@@ -138,3 +138,36 @@ func TestStripSecretsFromToolInput(t *testing.T) {
 		t.Fatalf("path stripped: %+v", ev.ToolInput)
 	}
 }
+
+func TestAgentLabel(t *testing.T) {
+	t.Setenv("LEASH_AGENT", "")
+	ev, err := Parse([]byte(`{"hook_event_name":"beforeShellExecution","command":"ls","cwd":"/p"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if AgentLabel(ev) != "Cursor" {
+		t.Fatalf("cursor: %q", AgentLabel(ev))
+	}
+	ev, err = Parse([]byte(`{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/p"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if AgentLabel(ev) != "Claude" {
+		t.Fatalf("claude: %q", AgentLabel(ev))
+	}
+	ev, err = Parse([]byte(`{"protocol":"leash","hook_event_name":"pre_tool","agent":"OpenCode","cwd":"/p","tool_name":"bash"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if AgentLabel(ev) != "OpenCode" {
+		t.Fatalf("opencode: %q %+v", AgentLabel(ev), ev)
+	}
+	t.Setenv("LEASH_AGENT", "Codex")
+	ev, err = Parse([]byte(`{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/p"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if AgentLabel(ev) != "Codex" {
+		t.Fatalf("env agent: %q", AgentLabel(ev))
+	}
+}

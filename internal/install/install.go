@@ -87,7 +87,7 @@ func mergeClaude(bin string, timeoutSec int) error {
 		"hooks": []any{
 			map[string]any{
 				"type":    "command",
-				"command": hookCommand(bin),
+				"command": hookCommand(bin, "Claude"),
 				"timeout": timeoutSec,
 			},
 		},
@@ -121,7 +121,7 @@ func mergeCodex(bin string, timeoutSec int) error {
 		hooks = map[string]any{}
 		root["hooks"] = hooks
 	}
-	cmd := hookCommand(bin)
+	cmd := hookCommand(bin, "Codex")
 	entry := map[string]any{
 		"matcher": "Bash",
 		"hooks": []any{
@@ -190,8 +190,12 @@ func enableCodexHooks() error {
 	return atomicfile.WriteFile(path, []byte(s+block), 0o644)
 }
 
-func hookCommand(bin string) string {
-	return strconv.Quote(bin) + " hook"
+func hookCommand(bin, agent string) string {
+	cmd := strconv.Quote(bin) + " hook"
+	if agent == "" {
+		return cmd
+	}
+	return "env LEASH_AGENT=" + agent + " " + cmd
 }
 
 func isLeashCommand(cmd string) bool {
@@ -261,7 +265,7 @@ func mergeCursor(bin string, timeoutSec int) error {
 		root["hooks"] = hooks
 	}
 	entry := map[string]any{
-		"command": hookCommand(bin),
+		"command": hookCommand(bin, "Cursor"),
 		"timeout": timeoutSec,
 	}
 	for _, ev := range []string{"preToolUse", "beforeShellExecution"} {
@@ -365,6 +369,7 @@ export const Leash = async ({ directory }) => {
       const payload = {
         protocol: "leash",
         hook_event_name: "pre_tool",
+        agent: "OpenCode",
         cwd: directory,
         tool_name: input.tool,
         tool_input: output.args || {},
