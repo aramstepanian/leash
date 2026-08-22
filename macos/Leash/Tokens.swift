@@ -263,6 +263,8 @@ enum LeashCopy {
     static let chooseWorkFolder = "Choose the project folder"
     static let alreadyRunning = "Already running"
     static let running = "Running"
+    static let pickAgent = "Agent"
+    static let notInstalled = "not installed"
     static let dot = " · "
     static let reasons = "  ·  "
 
@@ -596,14 +598,46 @@ enum LeashFormat {
 
     static let cliIDs = ["opencode", "claude", "cursor-cli", "codex", "hermes", "grok"]
 
-    static func dispatchAgent(_ agents: [AgentInfo]?) -> AgentInfo? {
+    static func dispatchAgent(_ agents: [AgentInfo]?, prefer: String? = nil) -> AgentInfo? {
         let list = agents ?? []
+        if let prefer, !prefer.isEmpty,
+           let found = list.first(where: { $0.id == prefer && $0.installed && cliIDs.contains($0.id) }) {
+            return found
+        }
         for id in cliIDs {
             if let found = list.first(where: { $0.id == id && $0.installed }) {
                 return found
             }
         }
         return nil
+    }
+
+    static func dispatchChoices(_ agents: [AgentInfo]?) -> [AgentInfo] {
+        let list = agents ?? []
+        return cliIDs.compactMap { id in list.first(where: { $0.id == id }) }
+    }
+
+    static func pickerName(_ agent: AgentInfo) -> String {
+        if agent.id == "cursor-cli" { return "Cursor" }
+        return agent.name
+    }
+
+    static func plainText(_ raw: String) -> String {
+        var s = raw.replacingOccurrences(of: "\r", with: "")
+        let ns = s as NSString
+        let full = NSRange(location: 0, length: ns.length)
+        if let csi = try? NSRegularExpression(pattern: "\u{001B}\\[[0-9;?=]*[ -/]*[@-~]") {
+            s = csi.stringByReplacingMatches(in: s, range: full, withTemplate: "")
+        }
+        let ns2 = s as NSString
+        if let orphan = try? NSRegularExpression(pattern: "\\[[0-9;]{1,12}m") {
+            s = orphan.stringByReplacingMatches(in: s, range: NSRange(location: 0, length: ns2.length), withTemplate: "")
+        }
+        s = s.replacingOccurrences(of: "\u{001B}", with: "")
+        while s.contains("\n\n\n") {
+            s = s.replacingOccurrences(of: "\n\n\n", with: "\n\n")
+        }
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     static func dispatchTitle(offline: Bool, folder: String?, agent: AgentInfo?, job: JobInfo?) -> String {
@@ -640,10 +674,10 @@ enum LeashFormat {
             case "running":
                 return job.prompt
             case "failed":
-                let err = job.error?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let err = plainText(job.error ?? "")
                 return err.isEmpty ? LeashCopy.failedLive : err
             case "done":
-                let result = job.result?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let result = plainText(job.result ?? "")
                 if let line = result.split(whereSeparator: \.isNewline).first {
                     return String(line)
                 }

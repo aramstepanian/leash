@@ -20,8 +20,9 @@ open macos/Leash.xcodeproj
 Run the **Leash** target. A clip-and-strap mark appears in the menu bar.
 
 1. Pick the project folder.
-2. Type what the agent should do. Press Return.
-3. Wait. The mark pulses while a job is running. Done shows the result.
+2. Pick the agent (OpenCode, Claude, Cursor CLI, Codex, Hermes, Grok). Grey chips are not installed.
+3. Type what the agent should do. Press Return.
+4. Wait. The mark pulses while a job is running. Done shows the result.
 
 Leash starts the local daemon for you. On this Mac, OpenCode is the default pick when it is installed.
 

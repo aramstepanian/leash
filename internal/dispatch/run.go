@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 
@@ -68,7 +69,7 @@ func runPrint(ctx context.Context, rec Recipe, root string) (string, error) {
 	}
 	cmd := exec.CommandContext(ctx, rec.Command, rec.Args...)
 	cmd.Dir = root
-	cmd.Env = os.Environ()
+	cmd.Env = append(os.Environ(), "NO_COLOR=1", "TERM=dumb", "FORCE_COLOR=0", "CLICOLOR=0")
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
@@ -78,10 +79,31 @@ func runPrint(ctx context.Context, rec Recipe, root string) (string, error) {
 	return buf.String(), nil
 }
 
+var (
+	ansiCSI    = regexp.MustCompile(`\x1b\[[0-9;?=]*[ -/]*[@-~]`)
+	ansiOSC    = regexp.MustCompile(`\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)`)
+	ansiOther  = regexp.MustCompile(`\x1b[@-Z\\-_]`)
+	ansiOrphan = regexp.MustCompile(`\[[0-9;]{1,12}m`)
+)
+
 func clip(s string) string {
+	s = stripANSI(s)
 	s = strings.TrimSpace(s)
 	if len(s) <= maxResult {
 		return s
 	}
 	return s[:maxResult] + "…"
+}
+
+func stripANSI(s string) string {
+	s = strings.ReplaceAll(s, "\r", "")
+	s = ansiOSC.ReplaceAllString(s, "")
+	s = ansiCSI.ReplaceAllString(s, "")
+	s = ansiOther.ReplaceAllString(s, "")
+	s = ansiOrphan.ReplaceAllString(s, "")
+	s = strings.ReplaceAll(s, "\x1b", "")
+	for strings.Contains(s, "\n\n\n") {
+		s = strings.ReplaceAll(s, "\n\n\n", "\n\n")
+	}
+	return s
 }

@@ -5,6 +5,7 @@ import Foundation
 @MainActor
 final class AppModel: ObservableObject {
     static let shared = AppModel()
+    private static let agentKey = "leash.selectedAgent"
 
     @Published var state: LeashState = .empty
     @Published var daemonError: String?
@@ -16,6 +17,7 @@ final class AppModel: ObservableObject {
     @Published var promptDraft = ""
     @Published var sending = false
     @Published var folder: String?
+    @Published var selectedAgentID: String = UserDefaults.standard.string(forKey: AppModel.agentKey) ?? ""
 
     private var client = DaemonClient()
     private var timer: Timer?
@@ -49,6 +51,10 @@ final class AppModel: ObservableObject {
             daemonError = nil
             if folder == nil || folder?.isEmpty == true, let root = next.watchRoot ?? next.folders.first, !root.isEmpty {
                 folder = root
+            }
+            if LeashFormat.dispatchAgent(next.agents, prefer: selectedAgentID) == nil,
+               let fallback = LeashFormat.dispatchAgent(next.agents) {
+                selectAgent(fallback.id)
             }
             if selectedEventID == nil || selectedEventID == prevLast, let last = next.mission?.timeline.last?.id {
                 selectedEventID = last
@@ -253,18 +259,24 @@ final class AppModel: ObservableObject {
             notice = LeashCopy.chooseWorkFolder
             return
         }
-        guard LeashFormat.dispatchAgent(state.agents) != nil else {
+        guard let agent = LeashFormat.dispatchAgent(state.agents, prefer: selectedAgentID) else {
             notice = LeashCopy.noCLI
             return
         }
         sending = true
         defer { sending = false }
         do {
-            try await client.run(prompt: prompt, agent: nil, path: path)
+            selectAgent(agent.id)
+            try await client.run(prompt: prompt, agent: agent.id, path: path)
             promptDraft = ""
             await refresh()
         } catch {
             notice = error.localizedDescription
         }
+    }
+
+    func selectAgent(_ id: String) {
+        selectedAgentID = id
+        UserDefaults.standard.set(id, forKey: Self.agentKey)
     }
 }

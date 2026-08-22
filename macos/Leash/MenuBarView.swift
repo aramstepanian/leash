@@ -5,7 +5,7 @@ struct MenuBarView: View {
     @EnvironmentObject private var app: AppModel
 
     var body: some View {
-        let agent = LeashFormat.dispatchAgent(app.state.agents)
+        let agent = LeashFormat.dispatchAgent(app.state.agents, prefer: app.selectedAgentID)
         let job = app.state.job
         VStack(alignment: .leading, spacing: 0) {
             LeashStatusHeader(
@@ -27,8 +27,12 @@ struct MenuBarView: View {
             .padding(.horizontal, LeashSpace.md)
             .padding(.bottom, LeashSpace.sm)
 
+            agentPicker
+                .padding(.horizontal, LeashSpace.md)
+                .padding(.bottom, LeashSpace.sm)
+
             if let job, job.status == "done" || job.status == "failed" {
-                let text = job.displayText
+                let text = LeashFormat.plainText(job.displayText)
                 if !text.isEmpty {
                     Text(text)
                         .font(LeashType.caption)
@@ -57,6 +61,34 @@ struct MenuBarView: View {
         .frame(width: LeashLayout.menuWidth)
         .leashChrome(LeashChrome.menu)
         .onAppear { app.start() }
+    }
+
+    private var agentPicker: some View {
+        let choices = LeashFormat.dispatchChoices(app.state.agents)
+        let selected = LeashFormat.dispatchAgent(app.state.agents, prefer: app.selectedAgentID)?.id
+        let locked = app.state.job?.running == true || app.sending
+        return LazyVGrid(
+            columns: [GridItem(.adaptive(minimum: 72), spacing: LeashSpace.sm, alignment: .leading)],
+            alignment: .leading,
+            spacing: LeashSpace.sm
+        ) {
+            ForEach(choices) { choice in
+                Button {
+                    app.selectAgent(choice.id)
+                } label: {
+                    LeashChip(
+                        title: LeashFormat.pickerName(choice),
+                        tint: choice.installed ? LeashPaint.steel : LeashPaint.muted,
+                        on: choice.id == selected
+                    )
+                }
+                .buttonStyle(.plain)
+                .disabled(!choice.installed || locked)
+                .opacity(choice.installed ? 1 : LeashPaint.Opacity.disabled)
+                .help(choice.installed ? LeashFormat.pickerName(choice) : LeashCopy.notInstalled)
+            }
+        }
+        .accessibilityLabel(LeashCopy.pickAgent)
     }
 
     private var folderRow: some View {

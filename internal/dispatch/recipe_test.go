@@ -76,6 +76,21 @@ func TestRunPrintAgent(t *testing.T) {
 	}
 }
 
+func TestStripANSI(t *testing.T) {
+	raw := "\x1b[0m\n> build · nemotron\n\x1b[0m$ \x1b[0mls -la\ntotal 40\n"
+	got := stripANSI(raw)
+	if strings.Contains(got, "[0m") || strings.Contains(got, "\x1b") {
+		t.Fatalf("ansi left in %q", got)
+	}
+	if !strings.Contains(got, "ls -la") || !strings.Contains(got, "total 40") {
+		t.Fatalf("lost output: %q", got)
+	}
+	orphan := stripANSI("[0m$ [0mls -la")
+	if strings.Contains(orphan, "[0m") {
+		t.Fatalf("orphan sgr left in %q", orphan)
+	}
+}
+
 func TestPickAllowPrefersOnce(t *testing.T) {
 	opt, ok := pickAllow([]byte(`{"options":[{"optionId":"deny","kind":"reject_once"},{"optionId":"ok","kind":"allow_once"}]}`))
 	if !ok || opt != "ok" {
