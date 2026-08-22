@@ -39,9 +39,10 @@ struct MenuBarView: View {
             LeashMenuRow(title: LeashCopy.mission, subtitle: LeashFormat.missionSubtitle(phase: app.state.phase, title: app.state.mission?.title), symbol: LeashSymbol.mission) {
                 app.openMission()
             }
-            LeashMenuRow(title: LeashCopy.watchFolders, subtitle: LeashFormat.watchSubtitle(app.state.folders), symbol: LeashSymbol.folder) {
-                app.pickFolder()
-            }
+
+            folderRows
+            alwaysRows
+
             LeashMenuRow(
                 title: LeashCopy.undoLastBurst,
                 subtitle: LeashFormat.undoSubtitle(app.state.burst),
@@ -69,5 +70,44 @@ struct MenuBarView: View {
         .frame(width: LeashLayout.menuWidth)
         .leashChrome(LeashChrome.menu)
         .onAppear { app.start() }
+    }
+
+    @ViewBuilder
+    private var folderRows: some View {
+        let folders = app.state.folders
+        if folders.isEmpty {
+            LeashMenuRow(title: LeashCopy.watchFolders, subtitle: LeashCopy.chooseFolders, symbol: LeashSymbol.folder) {
+                app.pickFolder()
+            }
+        } else {
+            ForEach(folders.prefix(LeashLayout.folderCap), id: \.self) { path in
+                LeashRemovableRow(
+                    title: LeashFormat.folderName(path),
+                    subtitle: LeashFormat.compactPath(path),
+                    symbol: LeashSymbol.folder
+                ) {
+                    Task { await app.unwatch(path) }
+                }
+            }
+            LeashMenuRow(title: LeashCopy.addFolder, symbol: LeashSymbol.addFolder) {
+                app.pickFolder()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var alwaysRows: some View {
+        let rules = app.state.alwaysAllow
+        if !rules.isEmpty {
+            ForEach(rules.prefix(LeashLayout.alwaysCap)) { rule in
+                LeashRemovableRow(
+                    title: rule.pattern,
+                    subtitle: LeashFormat.alwaysSubtitle(rule),
+                    symbol: LeashSymbol.alwaysList
+                ) {
+                    Task { await app.revokeAlways(rule) }
+                }
+            }
+        }
     }
 }

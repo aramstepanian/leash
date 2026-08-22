@@ -38,7 +38,7 @@ struct MissionView: View {
             HStack(alignment: .top, spacing: LeashSpace.xxl) {
                 LeashTapeList(events: mission?.timeline ?? [], selectedID: $app.selectedEventID)
                     .frame(width: LeashLayout.timeline)
-                LeashScrub(event: selectedEvent)
+                LeashScrub(event: selectedEvent, burst: app.state.burst)
             }
             .frame(minHeight: LeashLayout.tapeFloor)
         }
@@ -64,13 +64,13 @@ struct MissionView: View {
                 filled: LeashFormat.headerMarkFilled(phase: phase, waiting: app.state.waitingCount),
                 tint: MissionPhase.headerTint(phase: phase, waiting: app.state.waitingCount)
             )
-            LeashKicker(text: LeashCopy.mission)
+            LeashKicker(text: LeashCopy.job)
             Text(mission?.title ?? LeashCopy.idle)
                 .font(LeashType.rowStrong)
                 .foregroundStyle(LeashPaint.ink)
                 .lineLimit(1)
             if let agent = mission?.agent, !agent.isEmpty {
-                LeashMono(text: agent, strong: true)
+                LeashMono(text: agent)
             }
             Spacer(minLength: LeashSpace.md)
             LeashPhaseLights(phase: phase, waiting: app.state.waitingCount)
@@ -79,18 +79,20 @@ struct MissionView: View {
 
     private var inspector: some View {
         VStack(alignment: .leading, spacing: LeashSpace.sm) {
-            if let goal = mission?.goal, !goal.isEmpty {
+            if let goal = mission?.goal, !goal.isEmpty, MissionPhase(phase) == .plan {
                 Text(goal)
                     .font(LeashType.body)
                     .foregroundStyle(LeashPaint.muted)
                     .lineLimit(2)
             }
-            if let live = mission?.live {
-                LeashInspector(live: live)
-            } else if let pending = app.state.pending {
+            if let pending = app.state.pending {
                 LeashInspector(live: LeashFormat.waitingCall(pending))
+            } else if MissionPhase(phase) == .review, let burst = app.state.burst {
+                LeashResultWell(burst: burst)
+            } else if let live = mission?.live {
+                LeashInspector(live: live)
             } else {
-                LeashEmptyWell(text: LeashCopy.noTool)
+                LeashEmptyWell(text: LeashCopy.noJob)
             }
         }
     }

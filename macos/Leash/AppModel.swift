@@ -160,6 +160,26 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func unwatch(_ path: String) async {
+        do {
+            try await client.unwatch(path)
+            notice = LeashCopy.unwatched
+            await refresh()
+        } catch {
+            daemonError = error.localizedDescription
+        }
+    }
+
+    func revokeAlways(_ rule: AlwaysRule) async {
+        do {
+            try await client.revokeAlways(rule)
+            notice = LeashCopy.revoked
+            await refresh()
+        } catch {
+            daemonError = error.localizedDescription
+        }
+    }
+
     func installHooks() async {
         guard let bin = bundledLeash() else {
             daemonError = LeashCopy.helperMissing

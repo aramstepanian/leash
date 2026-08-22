@@ -108,6 +108,25 @@ struct DaemonClient {
         try check(res)
     }
 
+    func unwatch(_ path: String) async throws {
+        try await watch(path, remove: true)
+    }
+
+    func revokeAlways(_ rule: AlwaysRule) async throws {
+        var req = try authorized("POST", "/v1/always")
+        var body: [String: Any] = [
+            "remove": true,
+            "tool": rule.tool,
+            "pattern": rule.pattern,
+        ]
+        if let root = rule.root, !root.isEmpty {
+            body["root"] = root
+        }
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (_, res) = try await URLSession.shared.data(for: req)
+        try check(res)
+    }
+
     private func authorized(_ method: String, _ path: String) throws -> URLRequest {
         var req = URLRequest(url: base.appendingPathComponent(String(path.dropFirst())))
         req.httpMethod = method

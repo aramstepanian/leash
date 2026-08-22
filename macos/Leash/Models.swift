@@ -65,6 +65,7 @@ struct MissionInfo: Codable, Equatable {
 struct LiveCall: Codable, Equatable {
     var tool: String
     var detail: String
+    var outcome: String?
     var agent: String?
     var root: String?
     var started: Date?
@@ -77,6 +78,7 @@ struct LiveCall: Codable, Equatable {
 struct FailedCall: Codable, Equatable {
     var tool: String
     var detail: String
+    var outcome: String?
     var error: String
     var agent: String?
 }
@@ -117,10 +119,12 @@ struct BurstInfo: Codable, Equatable {
     var root: String?
 }
 
-struct AlwaysRule: Codable, Equatable {
+struct AlwaysRule: Codable, Equatable, Identifiable {
     var tool: String
     var pattern: String
     var root: String?
+
+    var id: String { "\(tool)|\(pattern)|\(root ?? "")" }
 }
 
 struct UndoResponse: Codable {

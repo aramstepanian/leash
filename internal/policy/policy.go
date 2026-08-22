@@ -71,11 +71,12 @@ var skipSnap = []string{
 }
 
 // Assess decides whether to prompt. watchRoot may be empty.
-func Assess(tool, cwd, watchRoot string, input map[string]any, always []Rule) Assessment {
+func Assess(tool, cwd, watchRoot string, input map[string]any, always []Rule) (a Assessment) {
+	defer func() { a.Title = OutcomeFor(a) }()
 	tool = normalizeTool(tool)
 	paths := Paths(tool, cwd, input)
 	summary := CommandSummary(tool, input)
-	a := Assessment{
+	a = Assessment{
 		Kind:     "write",
 		Title:    toolLabel(tool),
 		Detail:   summary,
