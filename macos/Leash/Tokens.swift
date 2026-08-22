@@ -180,6 +180,7 @@ enum LeashSymbol {
     static let undo = "arrow.uturn.backward"
     static let install = "square.and.arrow.down"
     static let quit = "power"
+    static let chevron = "chevron.right"
     static let alwaysList = "minus.circle"
     static let addFolder = "plus"
 }
