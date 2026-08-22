@@ -10,12 +10,11 @@ struct ApprovalView: View {
             if let pending = app.state.pending {
                 panel(pending)
             } else {
-                empty
+                LeashCaughtUp()
             }
         }
-        .frame(width: 432)
-        .leashWindowFill()
-        .background(WindowAccess(configure: LeashChrome.approval))
+        .frame(width: LeashLayout.approvalWidth)
+        .leashChrome(LeashChrome.approval)
         .onAppear {
             app.start()
             polishWindow()
@@ -31,201 +30,66 @@ struct ApprovalView: View {
         }
     }
 
-    private var empty: some View {
-        VStack(spacing: 10) {
-            LeashMark(filled: true, tint: LeashPaint.muted, size: 14)
-            Text("Caught up")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(LeashPaint.ink)
-            Text("No tool call waiting.")
-                .font(.system(size: 12))
-                .foregroundStyle(LeashPaint.muted)
-        }
-        .frame(maxWidth: .infinity, minHeight: 168)
-        .padding(28)
-    }
-
     private func panel(_ pending: PendingApproval) -> some View {
         let kind = LeashKind(pending.kind)
         return VStack(alignment: .leading, spacing: 0) {
             header(pending, kind: kind)
             titleBlock(pending)
-                .padding(.top, 18)
-            commandWell(pending, kind: kind)
-                .padding(.top, 16)
+                .padding(.top, LeashSpace.panel)
+            LeashCommandWell(text: pending.detail, needles: pending.reasons, accent: kind.color)
+                .padding(.top, LeashSpace.section)
             if let folder = pending.root ?? pending.cwd, !folder.isEmpty {
-                pathRow(folder)
-                    .padding(.top, 10)
+                LeashPathRow(path: folder)
+                    .padding(.top, LeashSpace.lg)
             }
-            if app.state.waitingCount > 1 {
-                Text(queueNote)
-                    .font(.system(size: 11))
+            if let note = LeashFormat.moreWaiting(total: app.state.waitingCount) {
+                Text(note)
+                    .font(LeashType.caption)
                     .foregroundStyle(LeashPaint.muted)
-                    .padding(.top, 8)
+                    .padding(.top, LeashSpace.md)
             }
-            actions
-                .padding(.top, 22)
+            LeashActionBar(
+                deciding: app.deciding,
+                kill: { Task { await app.decide("kill") } },
+                always: { Task { await app.decide("always") } },
+                allow: { Task { await app.decide("allow") } }
+            )
+            .padding(.top, LeashSpace.sheet)
         }
-        .padding(.horizontal, 22)
-        .padding(.top, 18)
-        .padding(.bottom, 18)
+        .padding(.horizontal, LeashSpace.sheet)
+        .padding(.vertical, LeashSpace.panel)
     }
 
     private func header(_ pending: PendingApproval, kind: LeashKind) -> some View {
-        HStack(spacing: 8) {
-            LeashMark(filled: true, tint: kind.color, size: 14)
+        let meta = LeashFormat.agentTool(agent: pending.agent, tool: pending.tool)
+        return HStack(spacing: LeashSpace.md) {
+            LeashMark(filled: true, tint: kind.color)
             LeashWordmark()
             Spacer()
-            if let agent = pending.agent, !agent.isEmpty, !pending.tool.isEmpty {
-                Text("\(agent) · \(pending.tool)")
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundStyle(LeashPaint.muted)
-            } else if let agent = pending.agent, !agent.isEmpty {
-                Text(agent)
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundStyle(LeashPaint.muted)
-            } else if !pending.tool.isEmpty {
-                Text(pending.tool)
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundStyle(LeashPaint.muted)
+            if !meta.isEmpty {
+                LeashMono(text: meta, strong: true)
             }
             KindChip(kind: kind)
         }
     }
 
     private func titleBlock(_ pending: PendingApproval) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: LeashSpace.sm) {
             Text(pending.title)
-                .font(.system(size: 22, weight: .semibold))
-                .tracking(-0.4)
+                .font(LeashType.display)
+                .tracking(LeashType.Track.display)
                 .foregroundStyle(LeashPaint.ink)
             if !pending.reasons.isEmpty {
-                Text(pending.reasons.joined(separator: "  ·  "))
-                    .font(.system(size: 13))
+                Text(pending.reasons.joined(separator: LeashCopy.reasons))
+                    .font(LeashType.row)
                     .foregroundStyle(LeashPaint.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
 
-    private func commandWell(_ pending: PendingApproval, kind: LeashKind) -> some View {
-        let body = Text(highlightedCommand(pending.detail, needles: pending.reasons, accent: kind.color))
-            .textSelection(.enabled)
-            .lineSpacing(3)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-
-        return HStack(alignment: .top, spacing: 0) {
-            kind.color
-                .frame(width: 2)
-            ViewThatFits(in: .vertical) {
-                body
-                ScrollView(.vertical, showsIndicators: false) {
-                    body
-                }
-                .frame(maxHeight: 160)
-            }
-        }
-        .background(LeashPaint.well)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(LeashPaint.hairline, lineWidth: 1)
-        )
-    }
-
-    private func pathRow(_ cwd: String) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "folder")
-                .font(.system(size: 10, weight: .medium))
-            Text(compactPath(cwd))
-                .font(.system(size: 11, design: .monospaced))
-                .lineLimit(1)
-                .truncationMode(.middle)
-        }
-        .foregroundStyle(LeashPaint.muted)
-    }
-
-    private var queueNote: String {
-        let n = app.state.waitingCount - 1
-        if n == 1 { return "1 more waiting." }
-        return "\(n) more waiting."
-    }
-
-    private var actions: some View {
-        HStack(spacing: 8) {
-            actionButton("Kill", hint: "esc", kind: .kill) {
-                Task { await app.decide("kill") }
-            }
-            .keyboardShortcut(.cancelAction)
-            .disabled(app.deciding)
-
-            Spacer(minLength: 8)
-
-            actionButton("Always", hint: "⌘↩", kind: .always) {
-                Task { await app.decide("always") }
-            }
-            .keyboardShortcut(.return, modifiers: [.command])
-            .disabled(app.deciding)
-
-            actionButton("Allow", hint: "↩", kind: .allow) {
-                Task { await app.decide("allow") }
-            }
-            .keyboardShortcut(.defaultAction)
-            .disabled(app.deciding)
-        }
-        .opacity(app.deciding ? 0.55 : 1)
-        .animation(.easeOut(duration: 0.15), value: app.deciding)
-    }
-
-    private enum ActionKind { case kill, always, allow }
-
-    private func actionButton(_ title: String, hint: String, kind: ActionKind, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 8) {
-                Text(title)
-                    .font(.system(size: 13, weight: kind == .always ? .medium : .semibold))
-                KeyHint(keys: hint, on: hintTone(kind))
-            }
-            .padding(.horizontal, kind == .always ? 11 : 14)
-            .frame(height: 34)
-            .background(actionFill(kind), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .strokeBorder(kind == .always ? LeashPaint.hairline : .clear, lineWidth: 1)
-            )
-            .foregroundStyle(actionInk(kind))
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func actionFill(_ kind: ActionKind) -> Color {
-        switch kind {
-        case .kill: return LeashPaint.vermillion
-        case .always: return LeashPaint.faint
-        case .allow: return LeashPaint.ink
-        }
-    }
-
-    private func actionInk(_ kind: ActionKind) -> Color {
-        switch kind {
-        case .kill: return LeashPaint.bone
-        case .always: return LeashPaint.ink
-        case .allow: return LeashPaint.paper
-        }
-    }
-
-    private func hintTone(_ kind: ActionKind) -> KeyHint.Tone {
-        switch kind {
-        case .kill: return .vermillion
-        case .always: return .paper
-        case .allow: return .ink
-        }
-    }
-
     private func polishWindow() {
-        for window in NSApp.windows where window.identifier?.rawValue == "approval" || window.title == "Leash" {
+        for window in NSApp.windows where window.identifier?.rawValue == LeashLayout.approvalID || window.title == LeashCopy.app {
             LeashChrome.approval(window)
         }
     }

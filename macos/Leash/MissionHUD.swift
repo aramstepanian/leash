@@ -18,13 +18,13 @@ final class MissionHUD {
 
         let hosting = NSHostingView(rootView: root)
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 720, height: 520),
+            contentRect: NSRect(origin: .zero, size: LeashLayout.mission),
             styleMask: [.titled, .fullSizeContentView, .closable],
             backing: .buffered,
             defer: false
         )
-        panel.identifier = NSUserInterfaceItemIdentifier("mission")
-        panel.title = "Mission Control"
+        panel.identifier = NSUserInterfaceItemIdentifier(LeashLayout.missionID)
+        panel.title = LeashCopy.mission
         panel.contentView = hosting
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
@@ -46,7 +46,7 @@ final class MissionHUD {
             let vis = screen.visibleFrame
             let size = panel.frame.size
             panel.setFrameOrigin(NSPoint(
-                x: vis.maxX - size.width - 24,
+                x: vis.maxX - size.width - LeashLayout.missionInset,
                 y: vis.midY - size.height / 2
             ))
         }

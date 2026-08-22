@@ -11,7 +11,7 @@ struct LeashApp: App {
             MenuBarView()
                 .environmentObject(app)
         } label: {
-            LeashMenuBarLabel(pending: app.state.waitingCount > 0 || app.state.mission?.phase == "act" || app.state.mission?.phase == "failed")
+            LeashMenuBarLabel(pending: LeashFormat.menuArmed(waiting: app.state.waitingCount, phase: app.state.mission?.phase))
         }
         .menuBarExtraStyle(.window)
     }
@@ -23,13 +23,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         AppModel.shared.start()
         if let dir = ProcessInfo.processInfo.environment["LEASH_SHOT"], !dir.isEmpty {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + LeashMotion.launchShot) {
                 let url = URL(fileURLWithPath: dir).appendingPathComponent("menubar.png")
                 LeashShot.swiftUI(
                     MenuBarView()
                         .environmentObject(AppModel.shared)
                         .environment(\.colorScheme, .dark)
-                        .frame(width: 300),
+                        .frame(width: LeashLayout.menuWidth),
                     to: url
                 )
             }
@@ -49,17 +49,14 @@ struct LeashMenuBarLabel: View {
         Image(pending ? "LeashMenuFilled" : "LeashMenu")
             .renderingMode(.template)
             .interpolation(.high)
-            .opacity(pending && pulse ? 0.35 : 1)
+            .opacity(pending && pulse ? LeashPaint.Opacity.pulse : 1)
             .onAppear {
                 pulse = pending
             }
             .onChange(of: pending) { _, isPending in
                 pulse = isPending
             }
-            .animation(
-                pending ? .easeInOut(duration: 0.9).repeatForever(autoreverses: true) : .easeOut(duration: 0.15),
-                value: pulse
-            )
-            .accessibilityLabel(pending ? "Leash — waiting on you" : "Leash")
+            .animation(pending ? LeashMotion.pulse : LeashMotion.settle, value: pulse)
+            .accessibilityLabel(pending ? LeashCopy.waitingOnYouA11y : LeashCopy.app)
     }
 }

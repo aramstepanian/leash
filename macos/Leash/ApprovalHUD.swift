@@ -20,13 +20,13 @@ final class ApprovalHUD {
         let hosting = NSHostingView(rootView: root)
         hosting.sizingOptions = [.intrinsicContentSize]
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 432, height: 240),
+            contentRect: NSRect(origin: .zero, size: LeashLayout.approvalSeed),
             styleMask: [.titled, .fullSizeContentView],
             backing: .buffered,
             defer: false
         )
-        panel.identifier = NSUserInterfaceItemIdentifier("approval")
-        panel.title = "Leash"
+        panel.identifier = NSUserInterfaceItemIdentifier(LeashLayout.approvalID)
+        panel.title = LeashCopy.app
         panel.contentView = hosting
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
@@ -46,8 +46,8 @@ final class ApprovalHUD {
     private func sizeToFit(_ panel: NSPanel, _ hosting: NSHostingView<AnyView>) {
         hosting.invalidateIntrinsicContentSize()
         var size = hosting.fittingSize
-        if !size.width.isFinite || size.width < 432 { size.width = 432 }
-        if !size.height.isFinite || size.height < 168 { size.height = 220 }
+        if !size.width.isFinite || size.width < LeashLayout.approvalWidth { size.width = LeashLayout.approvalWidth }
+        if !size.height.isFinite || size.height < LeashSpace.emptyFloor { size.height = LeashLayout.approvalFloor }
         panel.setContentSize(size)
     }
 
@@ -58,7 +58,7 @@ final class ApprovalHUD {
             let size = panel.frame.size
             panel.setFrameOrigin(NSPoint(
                 x: vis.midX - size.width / 2,
-                y: vis.midY - size.height / 2 + 40
+                y: vis.midY - size.height / 2 + LeashLayout.approvalLift
             ))
         }
         NSApp.activate(ignoringOtherApps: true)
@@ -71,7 +71,7 @@ final class ApprovalHUD {
 
     private func dumpShotIfRequested() {
         guard let dir = ProcessInfo.processInfo.environment["LEASH_SHOT"], !dir.isEmpty else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + LeashMotion.shot) {
             let base = URL(fileURLWithPath: dir)
             if let frame = self.panel?.contentView?.superview {
                 LeashShot.window(frame, to: base.appendingPathComponent("approval-chrome.png"))
