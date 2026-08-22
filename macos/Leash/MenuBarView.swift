@@ -33,9 +33,19 @@ struct MenuBarView: View {
                 .padding(.bottom, LeashSpace.sm)
 
             if job?.running == true || app.sending {
-                LeashRunningPulse()
+                let live = LeashFormat.replyBody(job?.result ?? "")
+                if live.isEmpty {
+                    LeashRunningPulse()
+                        .padding(.horizontal, LeashSpace.md)
+                        .padding(.bottom, LeashSpace.sm)
+                } else {
+                    VStack(alignment: .leading, spacing: LeashSpace.xs) {
+                        LeashKicker(text: LeashCopy.working)
+                        LeashReplyWell(text: live)
+                    }
                     .padding(.horizontal, LeashSpace.md)
                     .padding(.bottom, LeashSpace.sm)
+                }
             } else if let job, job.status == "done" || job.status == "failed" {
                 let text = LeashFormat.replyBody(job.displayText)
                 if !text.isEmpty {
@@ -68,28 +78,41 @@ struct MenuBarView: View {
         let choices = LeashFormat.dispatchChoices(app.state.agents)
         let selected = LeashFormat.dispatchAgent(app.state.agents, prefer: app.selectedAgentID)?.id
         let locked = app.state.job?.running == true || app.sending
-        return LazyVGrid(
-            columns: [GridItem(.adaptive(minimum: 72), spacing: LeashSpace.sm, alignment: .leading)],
-            alignment: .leading,
-            spacing: LeashSpace.sm
-        ) {
-            ForEach(choices) { choice in
-                Button {
-                    app.selectAgent(choice.id)
-                } label: {
-                    LeashChip(
-                        title: LeashFormat.pickerName(choice),
-                        tint: choice.installed ? LeashPaint.steel : LeashPaint.muted,
-                        on: choice.id == selected
-                    )
+        return VStack(alignment: .leading, spacing: LeashSpace.xs) {
+            LeashKicker(text: LeashCopy.pickAgent)
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 72), spacing: LeashSpace.sm, alignment: .leading)],
+                alignment: .leading,
+                spacing: LeashSpace.sm
+            ) {
+                ForEach(choices) { choice in
+                    Button {
+                        pick(choice, locked: locked)
+                    } label: {
+                        LeashChip(
+                            title: LeashFormat.pickerName(choice),
+                            tint: choice.installed ? LeashPaint.steel : LeashPaint.muted,
+                            on: choice.id == selected
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(locked)
+                    .opacity(choice.installed ? 1 : LeashPaint.Opacity.disabled)
+                    .help(choiceHelp(choice))
                 }
-                .buttonStyle(.plain)
-                .disabled(!choice.installed || locked)
-                .opacity(choice.installed ? 1 : LeashPaint.Opacity.disabled)
-                .help(choiceHelp(choice))
             }
         }
         .accessibilityLabel(LeashCopy.pickAgent)
+    }
+
+    private func pick(_ choice: AgentInfo, locked: Bool) {
+        guard !locked else { return }
+        if choice.installed {
+            app.selectAgent(choice.id)
+            app.notice = nil
+            return
+        }
+        app.notice = "\(LeashFormat.pickerName(choice)) · \(LeashCopy.notInstalled)"
     }
 
     private var folderRow: some View {

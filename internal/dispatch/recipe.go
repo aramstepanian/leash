@@ -11,11 +11,12 @@ var pickOrder = []string{"opencode", "claude", "cursor-cli", "codex", "hermes", 
 
 // Recipe is how to run one prompt on an installed CLI agent.
 type Recipe struct {
-	Name    string
-	Command string
-	Args    []string
-	ACP     bool
-	JSON    bool
+	Name      string
+	Command   string
+	Args      []string
+	PrintArgs []string
+	ACP       bool
+	JSON      bool
 }
 
 // Pick chooses an installed CLI agent. Cursor.app is not a runner; "cursor" maps to Cursor CLI.
@@ -59,13 +60,17 @@ func For(f agents.Found, prompt string) (Recipe, error) {
 	case "claude":
 		r.Args = []string{"-p", prompt, "--output-format", "text", "--permission-mode", "bypassPermissions"}
 	case "opencode":
+		r.ACP = true
 		r.JSON = true
-		r.Args = []string{"run", "--format", "json", prompt}
+		r.Args = []string{"acp"}
+		r.PrintArgs = []string{"run", "--format", "json", prompt}
 	case "codex":
 		r.Args = []string{"exec", "--full-auto", prompt}
 	case "cursor-cli":
 		r.Name = "Cursor"
-		r.Args = []string{"-p", prompt, "--print", "--output-format", "text"}
+		r.ACP = true
+		r.Args = []string{"acp"}
+		r.PrintArgs = []string{"-p", prompt, "--print", "--output-format", "text"}
 	case "hermes":
 		r.ACP = true
 		r.Args = []string{"acp"}

@@ -21,6 +21,7 @@ type Job struct {
 	Prompt string
 	Agent  string
 	Root   string
+	OnText func(string)
 }
 
 // Run sends prompt to an installed CLI agent and waits until it exits.
@@ -48,16 +49,28 @@ func RunWith(ctx context.Context, job Job, p agents.Probe) (string, string, erro
 		root, _ = os.Getwd()
 	}
 	if rec.ACP {
-		out, err := oneShotACP(ctx, rec.Command, rec.Args, root, job.Prompt)
-		return found.Name, replyFrom(rec, out), err
+		out, err := oneShotACP(ctx, rec.Command, rec.Args, root, job.Prompt, job.OnText)
+		if err == nil && strings.TrimSpace(out) != "" {
+			return found.Name, clip(stripANSI(out)), nil
+		}
+		if len(rec.PrintArgs) == 0 {
+			if strings.TrimSpace(out) != "" {
+				return found.Name, clip(stripANSI(out)), err
+			}
+			return found.Name, "", err
+		}
 	}
-	out, err := runPrint(ctx, rec, root)
-	if err != nil && found.ACP != "" {
+	printRec := rec
+	if len(rec.PrintArgs) > 0 {
+		printRec.Args = rec.PrintArgs
+	}
+	out, err := runPrint(ctx, printRec, root)
+	if err != nil && found.ACP != "" && !rec.ACP {
 		args := strings.Fields(found.ACP)
 		if len(args) > 1 {
-			out2, err2 := oneShotACP(ctx, rec.Command, args[1:], root, job.Prompt)
+			out2, err2 := oneShotACP(ctx, rec.Command, args[1:], root, job.Prompt, job.OnText)
 			if err2 == nil {
-				return found.Name, replyFrom(rec, out2), nil
+				return found.Name, clip(stripANSI(out2)), nil
 			}
 		}
 	}
@@ -151,18 +164,26 @@ func extractReply(raw string) string {
 			}
 			continue
 		}
-		if strings.HasPrefix(s, ">") {
-			continue
-		}
-		if strings.HasPrefix(s, "$") {
-			continue
-		}
-		if strings.HasPrefix(s, "{") && strings.Contains(s, `"type"`) {
+		if chromeLine(s) {
 			continue
 		}
 		lines = append(lines, line)
 	}
 	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func chromeLine(s string) bool {
+	switch s {
+	case "{", "}", "[", "]":
+		return true
+	}
+	if strings.HasPrefix(s, ">") || strings.HasPrefix(s, "$") {
+		return true
+	}
+	if strings.HasPrefix(s, "{") && strings.Contains(s, `"type"`) {
+		return true
+	}
+	return false
 }
 
 func stripANSI(s string) string {

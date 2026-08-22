@@ -610,21 +610,39 @@ enum LeashFormat {
 
     static func dispatchChoices(_ agents: [AgentInfo]?) -> [AgentInfo] {
         let list = agents ?? []
-        var out = cliIDs.compactMap { id in list.first(where: { $0.id == id }) }
-        if let app = list.first(where: { $0.id == "cursor" && $0.installed }),
-           let i = out.firstIndex(where: { $0.id == "cursor-cli" }), !out[i].installed {
-            out[i].installed = true
-            out[i].name = "Cursor"
-            if out[i].path == nil || out[i].path?.isEmpty == true {
-                out[i].path = app.path
+        return cliIDs.map { id in
+            var row = list.first(where: { $0.id == id }) ?? placeholderCLI(id)
+            if id == "cursor-cli" {
+                row.name = "Cursor"
+                if !row.installed, let app = list.first(where: { $0.id == "cursor" && $0.installed }) {
+                    row.installed = true
+                    if row.path == nil || row.path?.isEmpty == true {
+                        row.path = app.path
+                    }
+                }
             }
+            return row
         }
-        return out
+    }
+
+    static func placeholderCLI(_ id: String) -> AgentInfo {
+        AgentInfo(id: id, name: pickerLabel(id), installed: false, hooked: false, door: "acp")
+    }
+
+    static func pickerLabel(_ id: String) -> String {
+        switch id {
+        case "opencode": return "OpenCode"
+        case "claude": return "Claude"
+        case "cursor-cli": return "Cursor"
+        case "codex": return "Codex"
+        case "hermes": return "Hermes"
+        case "grok": return "Grok"
+        default: return id
+        }
     }
 
     static func pickerName(_ agent: AgentInfo) -> String {
-        if agent.id == "cursor-cli" { return "Cursor" }
-        return agent.name
+        pickerLabel(agent.id)
     }
 
     static func plainText(_ raw: String) -> String {
@@ -660,11 +678,18 @@ enum LeashFormat {
         var lines: [String] = []
         for line in cleaned.split(separator: "\n", omittingEmptySubsequences: false) {
             let s = line.trimmingCharacters(in: .whitespacesAndNewlines)
-            if s.hasPrefix(">") || s.hasPrefix("$") { continue }
-            if s.hasPrefix("{"), s.contains("\"type\"") { continue }
+            if isChromeLine(s) { continue }
             lines.append(String(line))
         }
         return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func isChromeLine(_ s: String) -> Bool {
+        if s.isEmpty { return false }
+        if s == "{" || s == "}" || s == "[" || s == "]" { return true }
+        if s.hasPrefix(">") || s.hasPrefix("$") { return true }
+        if s.hasPrefix("{"), s.contains("\"type\"") { return true }
+        return false
     }
 
     static func dispatchTitle(offline: Bool, folder: String?, agent: AgentInfo?, job: JobInfo?) -> String {

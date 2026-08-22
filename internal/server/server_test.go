@@ -533,6 +533,62 @@ func TestRunJobHTTP(t *testing.T) {
 	}
 }
 
+func TestRunJobStreamsText(t *testing.T) {
+	root := t.TempDir()
+	s := New(config.File{Token: "secret", WatchRoot: root, Port: 1})
+	started := make(chan struct{})
+	unblock := make(chan struct{})
+	s.RunJob = func(ctx context.Context, job dispatch.Job) (string, string, error) {
+		if job.OnText == nil {
+			t.Fatal("expected OnText")
+		}
+		job.OnText("partial hello")
+		close(started)
+		select {
+		case <-unblock:
+		case <-ctx.Done():
+			return "", "", ctx.Err()
+		}
+		return "OpenCode", "final hello", nil
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/run", s.auth(s.handleRun))
+	mux.HandleFunc("GET /v1/state", s.auth(s.handleState))
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+
+	body, _ := json.Marshal(map[string]string{"prompt": "hi", "agent": "opencode"})
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/run", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer secret")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != 200 {
+		res.Body.Close()
+		t.Fatalf("status %d", res.StatusCode)
+	}
+	res.Body.Close()
+	<-started
+
+	req, _ = http.NewRequest(http.MethodGet, ts.URL+"/v1/state", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var st State
+	if err := json.NewDecoder(res.Body).Decode(&st); err != nil {
+		res.Body.Close()
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if st.Job == nil || st.Job.Status != "running" || st.Job.Result != "partial hello" {
+		t.Fatalf("live %+v", st.Job)
+	}
+	close(unblock)
+}
+
 func TestAlwaysRevokeHTTP(t *testing.T) {
 	t.Setenv("LEASH_HOME", t.TempDir())
 	s := New(config.File{

@@ -30,8 +30,11 @@ func TestPickPrefersOpenCode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec.ACP || len(rec.Args) < 2 || rec.Args[0] != "run" {
-		t.Fatalf("%+v", rec)
+	if !rec.ACP || len(rec.Args) == 0 || rec.Args[0] != "acp" {
+		t.Fatalf("want ACP recipe, got %+v", rec)
+	}
+	if len(rec.PrintArgs) < 2 || rec.PrintArgs[0] != "run" {
+		t.Fatalf("want print fallback, got %+v", rec)
 	}
 	if !rec.JSON {
 		t.Fatalf("opencode should request json: %+v", rec)
@@ -122,6 +125,14 @@ func TestOpenCodeTextAndChrome(t *testing.T) {
 		t.Fatalf("chrome left in %q", got)
 	}
 	if !strings.Contains(got, "Hello!") {
+		t.Fatalf("lost reply %q", got)
+	}
+	tui := stripANSI("\x1b[0m\n> build · nemotron-3-ultra-free\n\x1b[0m}\nI'm opencode, an interactive CLI tool.\n")
+	got = extractReply(tui)
+	if strings.Contains(got, "[0m") || strings.Contains(got, "build ·") || got == "}" {
+		t.Fatalf("tui left in %q", got)
+	}
+	if !strings.Contains(got, "I'm opencode") {
 		t.Fatalf("lost reply %q", got)
 	}
 }
