@@ -239,12 +239,14 @@ enum LeashCopy {
     static let nothingToRestore = "Nothing to restore"
     static let lastBurst = "in the last burst"
     static let waitingOnYouA11y = "Leash — waiting on you"
+    static let runningA11y = "Leash — running"
     static let installAgents = "Cursor · Claude · Codex · OpenCode"
     static let agents = "Agents"
     static let noAgents = "No agents on this Mac"
+    static let noCLI = "No CLI agent on this Mac"
     static let hooksTag = "hooks"
     static let acpTag = "ACP"
-    static let addFolderPrompt = "Add a folder Leash should protect"
+    static let addFolderPrompt = "Pick the folder the agent should work in"
     static let helperMissing = "leash helper not found — run make install"
     static let installFailed = "install failed"
     static let hooksInstalled = "Hooks installed"
@@ -256,6 +258,11 @@ enum LeashCopy {
     static let revoked = "Revoked"
     static let unwatched = "Stopped watching"
     static let readyRewind = "Ready to rewind"
+    static let promptPlaceholder = "What should the agent do?"
+    static let pickWorkFolder = "Pick a folder"
+    static let chooseWorkFolder = "Choose the project folder"
+    static let alreadyRunning = "Already running"
+    static let running = "Running"
     static let dot = " · "
     static let reasons = "  ·  "
 
@@ -320,7 +327,7 @@ enum MissionPhase: String, CaseIterable, Identifiable {
 }
 
 enum DaemonStatus: String {
-    case watching, waiting, idle, offline
+    case watching, waiting, idle, offline, running, done, failed
 
     init(_ raw: String?) {
         self = DaemonStatus(rawValue: raw ?? "") ?? .offline
@@ -474,6 +481,9 @@ enum LeashFormat {
         case .waiting: return LeashCopy.needsYou
         case .idle: return LeashCopy.idle
         case .offline: return LeashCopy.offline
+        case .running: return LeashCopy.running
+        case .done: return LeashCopy.done
+        case .failed: return LeashCopy.failedLive
         }
     }
 
@@ -582,6 +592,85 @@ enum LeashFormat {
 
     static func headerMarkFilled(phase: String, waiting: Int) -> Bool {
         waiting > 0 || MissionPhase(phase).isLive
+    }
+
+    static let cliIDs = ["opencode", "claude", "cursor-cli", "codex", "hermes", "grok"]
+
+    static func dispatchAgent(_ agents: [AgentInfo]?) -> AgentInfo? {
+        let list = agents ?? []
+        for id in cliIDs {
+            if let found = list.first(where: { $0.id == id && $0.installed }) {
+                return found
+            }
+        }
+        return nil
+    }
+
+    static func dispatchTitle(offline: Bool, folder: String?, agent: AgentInfo?, job: JobInfo?) -> String {
+        if offline { return LeashCopy.offline }
+        if folder == nil || folder?.isEmpty == true { return LeashCopy.pickWorkFolder }
+        if agent == nil { return LeashCopy.noCLI }
+        if let job {
+            switch job.status {
+            case "running":
+                if let name = job.agent, !name.isEmpty {
+                    return LeashCopy.running + LeashCopy.dot + name
+                }
+                return LeashCopy.running
+            case "done":
+                if let name = job.agent, !name.isEmpty {
+                    return LeashCopy.done + LeashCopy.dot + name
+                }
+                return LeashCopy.done
+            case "failed":
+                return LeashCopy.failedLive
+            default:
+                break
+            }
+        }
+        return LeashCopy.idle
+    }
+
+    static func dispatchDetail(offlineError: String?, folder: String?, agent: AgentInfo?, job: JobInfo?) -> String {
+        if let offlineError, !offlineError.isEmpty { return offlineError }
+        if folder == nil || folder?.isEmpty == true { return LeashCopy.chooseWorkFolder }
+        if agent == nil { return LeashCopy.noCLI }
+        if let job {
+            switch job.status {
+            case "running":
+                return job.prompt
+            case "failed":
+                let err = job.error?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return err.isEmpty ? LeashCopy.failedLive : err
+            case "done":
+                let result = job.result?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if let line = result.split(whereSeparator: \.isNewline).first {
+                    return String(line)
+                }
+                return LeashCopy.done
+            default:
+                break
+            }
+        }
+        return compactPath(folder ?? "")
+    }
+
+    static func dispatchTint(offline: Bool, folder: String?, agent: AgentInfo?, job: JobInfo?) -> Color {
+        if offline { return LeashPaint.muted }
+        if folder == nil || folder?.isEmpty == true || agent == nil { return LeashPaint.amber }
+        if let job {
+            switch job.status {
+            case "running": return LeashPaint.moss
+            case "done": return LeashPaint.steel
+            case "failed": return LeashPaint.vermillion
+            default: break
+            }
+        }
+        return LeashPaint.muted
+    }
+
+    static func dispatchFilled(job: JobInfo?) -> Bool {
+        job?.status == "running" || job?.status == "done"
     }
 }
 

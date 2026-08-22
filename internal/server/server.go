@@ -23,6 +23,7 @@ import (
 	"github.com/leashapp/leash/internal/agents"
 	"github.com/leashapp/leash/internal/burst"
 	"github.com/leashapp/leash/internal/config"
+	"github.com/leashapp/leash/internal/dispatch"
 	"github.com/leashapp/leash/internal/hookfmt"
 	"github.com/leashapp/leash/internal/mission"
 	"github.com/leashapp/leash/internal/policy"
@@ -53,6 +54,19 @@ type Server struct {
 	censusMu sync.Mutex
 	census   []agents.Found
 	censusAt time.Time
+
+	RunJob    func(ctx context.Context, job dispatch.Job) (agent, result string, err error)
+	job       *Job
+	jobCancel context.CancelFunc
+}
+
+type Job struct {
+	Prompt string `json:"prompt"`
+	Agent  string `json:"agent,omitempty"`
+	Root   string `json:"root,omitempty"`
+	Status string `json:"status"`
+	Error  string `json:"error,omitempty"`
+	Result string `json:"result,omitempty"`
 }
 
 type Pending struct {
@@ -91,6 +105,7 @@ type State struct {
 	Port        int              `json:"port"`
 	Mission     mission.Snapshot `json:"mission"`
 	Agents      []agents.Found   `json:"agents"`
+	Job         *Job             `json:"job,omitempty"`
 }
 
 func New(cfg config.File) *Server {
@@ -140,6 +155,8 @@ func (s *Server) ListenAndServe() error {
 	mux.HandleFunc("POST /v1/retry", s.auth(s.handleRetry))
 	mux.HandleFunc("POST /v1/skip", s.auth(s.handleSkip))
 	mux.HandleFunc("POST /v1/always", s.auth(s.handleAlways))
+	mux.HandleFunc("POST /v1/run", s.auth(s.handleRun))
+	mux.HandleFunc("POST /v1/cancel", s.auth(s.handleCancel))
 	srv := &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
@@ -266,6 +283,18 @@ func (s *Server) Snapshot() State {
 	}
 	if st.Mission.Phase == "failed" {
 		st.Status = "failed"
+	}
+	if s.job != nil {
+		cp := *s.job
+		st.Job = &cp
+		switch cp.Status {
+		case "running":
+			st.Status = "running"
+		case "done":
+			st.Status = "done"
+		case "failed":
+			st.Status = "failed"
+		}
 	}
 	return st
 }
@@ -549,6 +578,10 @@ func (s *Server) HandleHook(ctx context.Context, body []byte) ([]byte, error) {
 	}
 
 	agent := hookfmt.AgentLabel(ev)
+
+	if a.Verdict != policy.Allow && s.Auto == nil {
+		a.Verdict = policy.Allow
+	}
 
 	if a.Verdict == policy.Allow {
 		if policy.Quiet(ev.ToolName, a.Detail) {
