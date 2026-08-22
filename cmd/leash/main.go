@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	version     = "0.6.0"
+	version     = "0.7.0"
 	maxHookBody = 1 << 20
 )
 
@@ -60,6 +60,8 @@ func main() {
 		err = cmdRetry()
 	case "skip":
 		err = cmdSkip()
+	case "always":
+		err = cmdAlways()
 	case "acp":
 		err = cmdACP()
 	case "version", "-v", "--version":
@@ -96,6 +98,8 @@ func usage() {
   leash interrupt [TEXT]   Kill the current/next tool
   leash retry              Ask the agent to retry the last failed tool
   leash skip               Dismiss the last failed tool
+  leash always             List always-allow rules
+  leash always --remove N  Revoke rule N from that list
   leash acp [--] <agent>   Permission socket in front of an ACP agent
   leash version
 `)
@@ -289,10 +293,18 @@ func cmdStatus() error {
 		}
 	}
 	if live := st.Mission.Live; live != nil {
-		fmt.Printf("live:    %s  %s  %s\n", live.Status, live.Tool, live.Detail)
+		label := live.Outcome
+		if label == "" {
+			label = live.Detail
+		}
+		fmt.Printf("live:    %s  %s\n", live.Status, label)
 	}
 	if f := st.Mission.Failed; f != nil {
-		fmt.Printf("failed:  %s  %s\n", f.Tool, f.Error)
+		label := f.Outcome
+		if label == "" {
+			label = f.Tool
+		}
+		fmt.Printf("failed:  %s  %s\n", label, f.Error)
 	}
 	roots := st.WatchRoots
 	if len(roots) == 0 && st.WatchRoot != "" {
@@ -314,12 +326,81 @@ func cmdStatus() error {
 	}
 	if st.Burst != nil {
 		if st.Burst.Root != "" {
-			fmt.Printf("burst:  %d files in %s\n", st.Burst.FileCount, st.Burst.Root)
+			fmt.Printf("result: %d files in %s\n", st.Burst.FileCount, st.Burst.Root)
 		} else {
-			fmt.Printf("burst:  %d files\n", st.Burst.FileCount)
+			fmt.Printf("result: %d files\n", st.Burst.FileCount)
+		}
+		for i, f := range st.Burst.Files {
+			if i == 8 {
+				fmt.Printf("        … %d more\n", len(st.Burst.Files)-8)
+				break
+			}
+			fmt.Printf("        %s\n", f)
+		}
+	}
+	if len(st.AlwaysAllow) > 0 {
+		fmt.Println("always:")
+		for i, r := range st.AlwaysAllow {
+			line := fmt.Sprintf("  %d  %s  %s", i+1, r.Tool, r.Pattern)
+			if r.Root != "" {
+				line += "  " + r.Root
+			}
+			fmt.Println(line)
 		}
 	}
 	return nil
+}
+
+func cmdAlways() error {
+	args := os.Args[2:]
+	remove := false
+	idx := ""
+	for _, a := range args {
+		if a == "-d" || a == "--remove" {
+			remove = true
+			continue
+		}
+		idx = a
+	}
+	var st server.State
+	if err := rpc("GET", "/v1/state", nil, &st); err != nil {
+		return err
+	}
+	if !remove {
+		if len(st.AlwaysAllow) == 0 {
+			fmt.Println("no always-allow rules")
+			return nil
+		}
+		for i, r := range st.AlwaysAllow {
+			line := fmt.Sprintf("%d  %s  %s", i+1, r.Tool, r.Pattern)
+			if r.Root != "" {
+				line += "  " + r.Root
+			}
+			fmt.Println(line)
+		}
+		return nil
+	}
+	if idx == "" {
+		return fmt.Errorf("usage: leash always --remove N")
+	}
+	n := 0
+	for _, c := range idx {
+		if c < '0' || c > '9' {
+			return fmt.Errorf("usage: leash always --remove N")
+		}
+		n = n*10 + int(c-'0')
+	}
+	if n < 1 || n > len(st.AlwaysAllow) {
+		return fmt.Errorf("no always rule %s", idx)
+	}
+	r := st.AlwaysAllow[n-1]
+	var out server.State
+	return rpc("POST", "/v1/always", map[string]any{
+		"remove":  true,
+		"tool":    r.Tool,
+		"pattern": r.Pattern,
+		"root":    r.Root,
+	}, &out)
 }
 
 func cmdACP() error {
@@ -379,6 +460,15 @@ func cmdDemoMission() error {
 		{
 			"protocol": "leash", "hook_event_name": "thought", "agent": "Demo", "cwd": cwd,
 			"text": "checking middleware before the edit",
+		},
+		{
+			"session_id": "demo", "cwd": cwd, "hook_event_name": "PreToolUse", "tool_name": "Write",
+			"agent": "Demo", "tool_input": map[string]string{"file_path": cwd + "/auth.ts"},
+		},
+		{
+			"protocol": "leash", "hook_event_name": "post_tool", "agent": "Demo", "cwd": cwd,
+			"tool_name": "Write", "tool_input": map[string]string{"file_path": cwd + "/auth.ts"},
+			"tool_output": "ok", "duration_ms": 40,
 		},
 		{
 			"session_id": "demo", "cwd": cwd, "hook_event_name": "PreToolUse", "tool_name": "Bash",

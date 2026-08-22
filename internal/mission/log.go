@@ -27,6 +27,7 @@ type Event struct {
 type Live struct {
 	Tool       string    `json:"tool"`
 	Detail     string    `json:"detail"`
+	Outcome    string    `json:"outcome,omitempty"`
 	Agent      string    `json:"agent,omitempty"`
 	Root       string    `json:"root,omitempty"`
 	Started    time.Time `json:"started"`
@@ -37,10 +38,11 @@ type Live struct {
 }
 
 type Failed struct {
-	Tool   string `json:"tool"`
-	Detail string `json:"detail"`
-	Error  string `json:"error"`
-	Agent  string `json:"agent,omitempty"`
+	Tool    string `json:"tool"`
+	Detail  string `json:"detail"`
+	Outcome string `json:"outcome,omitempty"`
+	Error   string `json:"error"`
+	Agent   string `json:"agent,omitempty"`
 }
 
 type Snapshot struct {
@@ -179,6 +181,14 @@ func (l *Log) ClearFailed() {
 	l.failed = nil
 }
 
+func (l *Log) MarkFailed(f Failed) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	cp := f
+	l.failed = &cp
+	l.lastAct = time.Now()
+}
+
 func (l *Log) Failed() *Failed {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -222,13 +232,14 @@ func (l *Log) Append(ev Event) Event {
 	return ev
 }
 
-func (l *Log) StartLive(tool, detail, agent, root, status string) {
+func (l *Log) StartLive(tool, detail, agent, root, status, outcome string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := time.Now()
 	l.live = &Live{
 		Tool:    tool,
 		Detail:  detail,
+		Outcome: outcome,
 		Agent:   agent,
 		Root:    root,
 		Started: now.UTC().Truncate(time.Second),
@@ -259,7 +270,7 @@ func (l *Log) FinishLive(result, output, errText string, durationMs int) *Live {
 	}
 	cp := *l.live
 	if result == "error" {
-		l.failed = &Failed{Tool: cp.Tool, Detail: cp.Detail, Error: firstNonEmpty(errText, output), Agent: cp.Agent}
+		l.failed = &Failed{Tool: cp.Tool, Detail: cp.Detail, Outcome: cp.Outcome, Error: firstNonEmpty(errText, output), Agent: cp.Agent}
 	} else {
 		l.failed = nil
 	}

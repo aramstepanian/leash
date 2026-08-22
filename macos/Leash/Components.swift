@@ -358,7 +358,7 @@ struct LeashTapeRow: View {
                                 .foregroundStyle(LeashPaint.muted)
                         }
                     }
-                    Text(event.kind.uppercased())
+                    Text(TapeKind(event.kind).label.uppercased())
                         .font(LeashType.tape)
                         .tracking(LeashType.Track.tape)
                         .foregroundStyle(kind.color)
@@ -383,32 +383,32 @@ struct LeashInspector: View {
         LeashWell(rail: status.tint) {
             VStack(alignment: .leading, spacing: LeashSpace.sm) {
                 HStack(spacing: LeashSpace.md) {
-                    Text(LeashFormat.agentTool(agent: live.agent, tool: live.tool))
-                        .font(LeashType.live)
-                    Text(live.status)
+                    Text(LeashFormat.liveHeadline(live))
+                        .font(LeashType.rowStrong)
+                    Text(status.label)
                         .font(LeashType.chip)
                         .foregroundStyle(status.tint)
                     Spacer()
+                    if let agent = live.agent, !agent.isEmpty {
+                        LeashMono(text: agent)
+                    }
                     if let ms = live.durationMs, ms > 0 {
                         Text(LeashFormat.duration(ms))
                             .font(LeashType.mono)
                             .foregroundStyle(LeashPaint.muted)
                     }
                 }
-                Text(live.detail)
-                    .font(LeashType.codeMedium)
-                    .foregroundStyle(LeashPaint.code)
-                    .textSelection(.enabled)
-                    .lineLimit(4)
+                if status == .waiting, !live.detail.isEmpty {
+                    Text(live.detail)
+                        .font(LeashType.codeMedium)
+                        .foregroundStyle(LeashPaint.code)
+                        .textSelection(.enabled)
+                        .lineLimit(4)
+                }
                 if let err = live.error, !err.isEmpty {
                     Text(err)
                         .font(LeashType.mono)
                         .foregroundStyle(LeashPaint.vermillion)
-                        .lineLimit(3)
-                } else if let result = live.result, !result.isEmpty {
-                    Text(result)
-                        .font(LeashType.mono)
-                        .foregroundStyle(LeashPaint.muted)
                         .lineLimit(3)
                 }
             }
@@ -534,10 +534,16 @@ struct LeashFailureBar: View {
 
     var body: some View {
         HStack(spacing: LeashSpace.md) {
-            Text(failed.error)
-                .font(LeashType.mono)
-                .foregroundStyle(LeashPaint.vermillion)
-                .lineLimit(2)
+            VStack(alignment: .leading, spacing: LeashSpace.xxs) {
+                Text(LeashFormat.failedHeadline(failed))
+                    .font(LeashType.bodyStrong)
+                    .foregroundStyle(LeashPaint.ink)
+                    .lineLimit(1)
+                Text(failed.error)
+                    .font(LeashType.mono)
+                    .foregroundStyle(LeashPaint.vermillion)
+                    .lineLimit(2)
+            }
             Spacer()
             LeashButton(title: LeashCopy.skip, hint: LeashCopy.hintSkip, action: .ghost, size: .control, run: skip)
                 .keyboardShortcut(".", modifiers: [.command])
@@ -572,7 +578,7 @@ struct LeashTapeList: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: LeashSpace.sm) {
-            LeashKicker(text: LeashCopy.timeline)
+            LeashKicker(text: LeashCopy.tape)
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: LeashSpace.xxs) {
@@ -594,38 +600,15 @@ struct LeashTapeList: View {
 
 struct LeashScrub: View {
     var event: TimelineEvent?
+    var burst: BurstInfo?
 
     var body: some View {
         VStack(alignment: .leading, spacing: LeashSpace.md) {
-            LeashKicker(text: LeashCopy.scrub)
+            LeashKicker(text: LeashCopy.result)
             if let event {
                 eventHeader(event)
-                if let detail = event.detail, !detail.isEmpty {
-                    Text(detail)
-                        .font(LeashType.code)
-                        .foregroundStyle(LeashPaint.code)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                if let err = event.error, !err.isEmpty {
-                    Text(err)
-                        .font(LeashType.code)
-                        .foregroundStyle(LeashPaint.vermillion)
-                        .textSelection(.enabled)
-                }
-                if let paths = event.paths, !paths.isEmpty {
-                    ForEach(paths.prefix(LeashLayout.scrubPathCap), id: \.self) { path in
-                        LeashMono(text: LeashFormat.compactPath(path))
-                    }
-                }
-                if let root = event.root, !root.isEmpty {
-                    LeashMono(text: LeashFormat.compactPath(root))
-                }
-            } else {
-                Text(LeashCopy.emptyTape)
-                    .font(LeashType.body)
-                    .foregroundStyle(LeashPaint.muted)
             }
+            paths(from: event, burst: burst)
             Spacer(minLength: 0)
         }
         .padding(LeashSpace.xl)
@@ -635,21 +618,123 @@ struct LeashScrub: View {
 
     private func eventHeader(_ event: TimelineEvent) -> some View {
         HStack {
-            Text(event.kind.capitalized)
+            Text(event.title)
                 .font(LeashType.rowStrong)
+                .lineLimit(2)
+            Spacer()
             if let agent = event.agent, !agent.isEmpty {
                 LeashMono(text: agent)
             }
-            if let tool = event.tool, !tool.isEmpty {
-                LeashMono(text: tool)
+        }
+    }
+
+    @ViewBuilder
+    private func paths(from event: TimelineEvent?, burst: BurstInfo?) -> some View {
+        let list = pathList(event: event, burst: burst)
+        if list.isEmpty {
+            Text(event?.detail ?? LeashCopy.emptyTape)
+                .font(LeashType.body)
+                .foregroundStyle(LeashPaint.muted)
+        } else {
+            ForEach(list.prefix(LeashLayout.previewFiles), id: \.self) { path in
+                LeashMono(text: LeashFormat.compactPath(path))
             }
-            Spacer()
-            if let result = event.result, !result.isEmpty {
-                Text(result)
-                    .font(LeashType.kicker)
-                    .foregroundStyle(LiveStatus.resultTint(result))
+            if list.count > LeashLayout.previewFiles {
+                Text(LeashCopy.andMore(list.count - LeashLayout.previewFiles))
+                    .font(LeashType.caption)
+                    .foregroundStyle(LeashPaint.muted)
             }
         }
+        if let err = event?.error, !err.isEmpty {
+            Text(err)
+                .font(LeashType.code)
+                .foregroundStyle(LeashPaint.vermillion)
+                .textSelection(.enabled)
+        }
+    }
+
+    private func pathList(event: TimelineEvent?, burst: BurstInfo?) -> [String] {
+        if let paths = event?.paths, !paths.isEmpty {
+            return paths
+        }
+        return burst?.files ?? []
+    }
+}
+
+struct LeashResultWell: View {
+    var burst: BurstInfo
+
+    var body: some View {
+        LeashWell(rail: LeashPaint.amber) {
+            VStack(alignment: .leading, spacing: LeashSpace.sm) {
+                HStack {
+                    Text(LeashCopy.files(burst.fileCount))
+                        .font(LeashType.rowStrong)
+                    Text(LeashCopy.readyRewind)
+                        .font(LeashType.chip)
+                        .foregroundStyle(LeashPaint.amber)
+                    Spacer()
+                    if let root = burst.root, !root.isEmpty {
+                        LeashMono(text: LeashFormat.folderName(root))
+                    }
+                }
+                ForEach(burst.files.prefix(LeashLayout.previewFiles), id: \.self) { path in
+                    LeashMono(text: LeashFormat.compactPath(path), tint: LeashPaint.code)
+                }
+                if burst.files.count > LeashLayout.previewFiles {
+                    Text(LeashCopy.andMore(burst.files.count - LeashLayout.previewFiles))
+                        .font(LeashType.caption)
+                        .foregroundStyle(LeashPaint.muted)
+                }
+            }
+            .padding(LeashSpace.xl)
+        }
+    }
+}
+
+struct LeashRemovableRow: View {
+    var title: String
+    var subtitle: String? = nil
+    var symbol: String
+    var remove: () -> Void
+
+    @State private var hover = false
+
+    var body: some View {
+        HStack(spacing: LeashSpace.lg) {
+            Image(systemName: symbol)
+                .font(LeashType.menuIcon)
+                .foregroundStyle(LeashPaint.muted)
+                .frame(width: LeashSpace.icon)
+            VStack(alignment: .leading, spacing: LeashSpace.lead) {
+                Text(title)
+                    .font(LeashType.row)
+                    .foregroundStyle(LeashPaint.ink)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(LeashType.caption)
+                        .foregroundStyle(LeashPaint.muted)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+            Spacer(minLength: 0)
+            Button(action: remove) {
+                Image(systemName: LeashSymbol.alwaysList)
+                    .font(LeashType.icon)
+                    .foregroundStyle(LeashPaint.muted)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, LeashSpace.md)
+        .padding(.vertical, subtitle == nil ? LeashSpace.rowTight : LeashSpace.md)
+        .background(
+            hover ? LeashPaint.faint : .clear,
+            in: RoundedRectangle(cornerRadius: LeashSpace.radiusControl, style: .continuous)
+        )
+        .onHover { hover = $0 }
     }
 }
 

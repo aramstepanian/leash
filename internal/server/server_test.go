@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -472,8 +473,13 @@ func TestMissionLoop(t *testing.T) {
 	for _, e := range st.Mission.Timeline {
 		kinds[e.Kind]++
 	}
-	if kinds["plan"] != 1 || kinds["thought"] != 1 || kinds["error"] < 1 {
+	if kinds["plan"] != 1 || kinds["thought"] != 0 || kinds["error"] < 1 {
 		t.Fatalf("timeline kinds %v %+v", kinds, st.Mission.Timeline)
+	}
+	for _, e := range st.Mission.Timeline {
+		if e.Kind == "tool" && strings.Contains(e.Detail, "git status") {
+			t.Fatalf("quiet inspection leaked onto the tape: %+v", e)
+		}
 	}
 
 	s.mission.SetSteer("use bun")
@@ -502,5 +508,74 @@ func TestInterruptKillsNextTool(t *testing.T) {
 	}
 	if !bytes.Contains(out, []byte("deny")) && !bytes.Contains(out, []byte("Interrupted")) {
 		t.Fatalf("want interrupt deny, got %s", out)
+	}
+}
+
+func TestPendingTitleIsOutcome(t *testing.T) {
+	s := New(config.File{Token: "t", WatchRoot: "/proj"})
+	s.AskTimeout = 2 * time.Second
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = s.HandleHook(context.Background(), []byte(`{
+			"cwd": "/proj",
+			"hook_event_name": "PreToolUse",
+			"tool_name": "Bash",
+			"tool_input": {"command": "rm -rf ./dist"}
+		}`))
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	var st State
+	for time.Now().Before(deadline) {
+		st = s.Snapshot()
+		if st.Pending != nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if st.Pending == nil {
+		t.Fatal("pending never appeared")
+	}
+	if st.Pending.Title != "Delete dist" {
+		t.Fatalf("title %q", st.Pending.Title)
+	}
+	_ = s.Resolve(st.Pending.ID, hookfmt.DecisionKill)
+	<-done
+}
+
+func TestAlwaysRevokeHTTP(t *testing.T) {
+	t.Setenv("LEASH_HOME", t.TempDir())
+	s := New(config.File{
+		Token: "secret",
+		Port:  1,
+		AlwaysAllow: []policy.Rule{
+			{Tool: "Bash", Pattern: "npm test", Root: "/proj"},
+		},
+	})
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/always", s.auth(s.handleAlways))
+	mux.HandleFunc("GET /v1/state", s.auth(s.handleState))
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+
+	body, _ := json.Marshal(map[string]any{
+		"remove": true, "tool": "Bash", "pattern": "npm test", "root": "/proj",
+	})
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/always", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer secret")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != 200 {
+		t.Fatalf("status %d", res.StatusCode)
+	}
+	var st State
+	if err := json.NewDecoder(res.Body).Decode(&st); err != nil {
+		t.Fatal(err)
+	}
+	if len(st.AlwaysAllow) != 0 {
+		t.Fatalf("still have rules %+v", st.AlwaysAllow)
 	}
 }

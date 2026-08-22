@@ -11,13 +11,13 @@ func TestPhasePlanActReview(t *testing.T) {
 	if got := log.Snapshot(false, false).Phase; got != "plan" {
 		t.Fatalf("after plan: %s", got)
 	}
-	log.StartLive("Bash", "git status", "Cursor", "/proj", "running")
+	log.StartLive("Bash", "git status", "Cursor", "/proj", "running", "Check git status")
 	if got := log.Snapshot(false, false).Phase; got != "act" {
 		t.Fatalf("live: %s", got)
 	}
 	log.ClearLive()
 	log.Append(Event{Kind: "tool", Title: "git status", Result: "ok"})
-	log.StartLive("Bash", "npm test", "Cursor", "/proj", "running")
+	log.StartLive("Bash", "npm test", "Cursor", "/proj", "running", "Run npm test")
 	log.FinishLive("error", "", "exit status 1", 40)
 	if got := log.Snapshot(false, false).Phase; got != "failed" {
 		t.Fatalf("failed: %s", got)
