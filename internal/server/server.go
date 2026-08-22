@@ -27,6 +27,7 @@ import (
 	"github.com/leashapp/leash/internal/hookfmt"
 	"github.com/leashapp/leash/internal/mission"
 	"github.com/leashapp/leash/internal/policy"
+	"github.com/leashapp/leash/internal/version"
 )
 
 const (
@@ -106,6 +107,7 @@ type State struct {
 	Mission     mission.Snapshot `json:"mission"`
 	Agents      []agents.Found   `json:"agents"`
 	Job         *Job             `json:"job,omitempty"`
+	Version     string           `json:"version,omitempty"`
 }
 
 func New(cfg config.File) *Server {
@@ -157,6 +159,7 @@ func (s *Server) ListenAndServe() error {
 	mux.HandleFunc("POST /v1/always", s.auth(s.handleAlways))
 	mux.HandleFunc("POST /v1/run", s.auth(s.handleRun))
 	mux.HandleFunc("POST /v1/cancel", s.auth(s.handleCancel))
+	mux.HandleFunc("POST /v1/shutdown", s.auth(s.handleShutdown))
 	srv := &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
@@ -221,8 +224,17 @@ func tokenOK(got, want string) bool {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprint(w, `{"ok":true}`)
+	writeJSON(w, map[string]any{"ok": true, "version": version.String})
+}
+
+func (s *Server) handleShutdown(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, map[string]any{"ok": true})
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		_ = s.Shutdown(ctx)
+	}()
 }
 
 func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
@@ -241,6 +253,7 @@ func (s *Server) Snapshot() State {
 		AlwaysAllow: s.Cfg.AlwaysAllow,
 		Port:        s.Cfg.Port,
 		Agents:      s.agentCensus(),
+		Version:     version.String,
 	}
 	if len(st.WatchRoots) == 0 && st.WatchRoot != "" {
 		st.WatchRoots = []string{st.WatchRoot}

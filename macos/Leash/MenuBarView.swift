@@ -19,6 +19,10 @@ struct MenuBarView: View {
                 .padding(.top, LeashSpace.xl)
                 .padding(.bottom, LeashSpace.sm)
 
+            agentPicker
+                .padding(.horizontal, LeashSpace.md)
+                .padding(.bottom, LeashSpace.sm)
+
             LeashField(
                 placeholder: LeashCopy.promptPlaceholder,
                 text: $app.promptDraft,
@@ -27,10 +31,6 @@ struct MenuBarView: View {
             .disabled(job?.running == true || app.sending || app.daemonError != nil)
             .padding(.horizontal, LeashSpace.md)
             .padding(.bottom, LeashSpace.sm)
-
-            agentPicker
-                .padding(.horizontal, LeashSpace.md)
-                .padding(.bottom, LeashSpace.sm)
 
             if job?.running == true || app.sending {
                 let live = LeashFormat.replyBody(job?.result ?? "")

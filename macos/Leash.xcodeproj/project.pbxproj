@@ -110,6 +110,7 @@
 			buildPhases = (
 				A70000000000000100000001 /* Sources */,
 				A30000000000000100000001 /* Frameworks */,
+				A70000000000000100000002 /* Embed leash helper */,
 				A30000000000000100000002 /* Resources */,
 			);
 			buildRules = (
@@ -176,6 +177,29 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		A70000000000000100000002 /* Embed leash helper */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Embed leash helper";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/leash",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "DEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/leash\"\nmkdir -p \"$(dirname \"$DEST\")\"\nfor src in \"${SRCROOT}/../bin/leash\" \"${HOME}/.leash/bin/leash\"; do\n  if [ -x \"$src\" ]; then\n    cp -f \"$src\" \"$DEST\"\n    chmod 755 \"$DEST\"\n    exit 0\n  fi\ndone\necho \"note: leash helper not found — run make install\" >&2\nexit 0\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin XCBuildConfiguration section */
 		A90000000000000100000001 /* Debug */ = {
 			isa = XCBuildConfiguration;
@@ -214,14 +238,14 @@
 				CODE_SIGN_ENTITLEMENTS = Leash/Leash.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Leash/Info.plist;
 				INFOPLIST_KEY_LSUIElement = YES;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.8.0;
+				MARKETING_VERSION = 0.9.0;
 				PRODUCT_BUNDLE_IDENTIFIER = app.leash.desktop;
 				PRODUCT_NAME = Leash;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -236,14 +260,14 @@
 				CODE_SIGN_ENTITLEMENTS = Leash/Leash.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Leash/Info.plist;
 				INFOPLIST_KEY_LSUIElement = YES;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.8.0;
+				MARKETING_VERSION = 0.9.0;
 				PRODUCT_BUNDLE_IDENTIFIER = app.leash.desktop;
 				PRODUCT_NAME = Leash;
 				SWIFT_EMIT_LOC_STRINGS = YES;

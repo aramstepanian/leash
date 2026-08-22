@@ -12,6 +12,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/leashapp/leash/internal/version"
 )
 
 type rpc struct {
@@ -81,7 +83,7 @@ func oneShotACP(ctx context.Context, command string, args []string, cwd, prompt 
 
 	if _, err := c.call("initialize", map[string]any{
 		"protocolVersion": 1,
-		"clientInfo":      map[string]string{"name": "leash", "title": "Leash", "version": "0.8.0"},
+		"clientInfo":      map[string]string{"name": "leash", "title": "Leash", "version": version.String},
 		"clientCapabilities": map[string]any{
 			"fs": map[string]bool{"readTextFile": false, "writeTextFile": false},
 		},

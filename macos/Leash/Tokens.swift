@@ -187,6 +187,9 @@ enum LeashSymbol {
 
 enum LeashCopy {
     static let app = "Leash"
+    static let build = "0.9.0"
+    static let buildMark = "0.9"
+    static let oldHelper = "Old helper — quit Leash and run make app"
     static let danger = "Danger"
     static let secret = "Secret"
     static let outside = "Outside"

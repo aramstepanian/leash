@@ -16,6 +16,7 @@ import (
 	"github.com/leashapp/leash/internal/dispatch"
 	"github.com/leashapp/leash/internal/hookfmt"
 	"github.com/leashapp/leash/internal/policy"
+	"github.com/leashapp/leash/internal/version"
 )
 
 func TestSilentAllowSafe(t *testing.T) {
@@ -587,6 +588,32 @@ func TestRunJobStreamsText(t *testing.T) {
 		t.Fatalf("live %+v", st.Job)
 	}
 	close(unblock)
+}
+
+func TestHealthVersion(t *testing.T) {
+	s := New(config.File{Token: "secret", Port: 1})
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/health", s.handleHealth)
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+	res, err := http.Get(ts.URL + "/v1/health")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var body struct {
+		OK      bool   `json:"ok"`
+		Version string `json:"version"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.OK || body.Version != version.String {
+		t.Fatalf("%+v", body)
+	}
+	if s.Snapshot().Version != version.String {
+		t.Fatalf("state version %q", s.Snapshot().Version)
+	}
 }
 
 func TestAlwaysRevokeHTTP(t *testing.T) {

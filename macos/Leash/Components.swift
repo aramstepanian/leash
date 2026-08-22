@@ -32,7 +32,7 @@ struct LeashMark: View {
 
 struct LeashWordmark: View {
     var body: some View {
-        Text(LeashCopy.app)
+        Text("\(LeashCopy.app)  \(LeashCopy.buildMark)")
             .font(LeashType.kicker)
             .tracking(LeashType.Track.wordmark)
             .textCase(.uppercase)

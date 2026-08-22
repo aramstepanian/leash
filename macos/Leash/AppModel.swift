@@ -61,6 +61,11 @@ final class AppModel: ObservableObject {
             }
             MissionHUD.shared.hide()
             ApprovalHUD.shared.hide()
+            if next.version != LeashCopy.build {
+                notice = LeashCopy.oldHelper
+            } else if notice == LeashCopy.oldHelper {
+                notice = nil
+            }
         } catch {
             state = .empty
             daemonError = error.localizedDescription
@@ -204,8 +209,13 @@ final class AppModel: ObservableObject {
 
     private func bootstrap() async {
         if await client.reachable() {
-            await refresh()
-            return
+            if await client.healthVersion() == LeashCopy.build {
+                await refresh()
+                return
+            }
+            try? await client.stop()
+            killStrayHelper()
+            try? await Task.sleep(nanoseconds: 250_000_000)
         }
         launchHelper()
         for _ in 0 ..< LeashMotion.bootstrapTries {
@@ -216,6 +226,20 @@ final class AppModel: ObservableObject {
             }
         }
         daemonError = LeashCopy.couldNotStart
+    }
+
+    private func killStrayHelper() {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+        proc.arguments = ["-f", "leash serve"]
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+        do {
+            try proc.run()
+            proc.waitUntilExit()
+        } catch {
+            return
+        }
     }
 
     private func launchHelper() {

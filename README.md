@@ -10,14 +10,17 @@ Works with **OpenCode**, **Claude Code**, **Cursor CLI**, **Codex**, **Hermes**,
 
 ## Quick start (Mac)
 
-You need Go 1.22+ and Xcode 15+ (macOS 14).
+You need Go 1.22+ and Xcode 15+ (macOS 14). **`make install` only updates the helper.** The menu (Agent chips, clean ACP replies) is Leash.app — rebuild it or you will keep seeing the old popup.
 
 ```bash
-make install          # builds ~/.leash/bin/leash
-open macos/Leash.xcodeproj
+make app    # quits old Leash, builds helper + app, opens this tree’s Leash.app
 ```
 
-Run the **Leash** target. A clip-and-strap mark appears in the menu bar.
+The wordmark must read **LEASH 0.9**. If it still says **LEASH**, the running app is not this build (Dock / an old DerivedData copy). Quit it and run `make app` again.
+
+Or from Xcode: open `macos/Leash.xcodeproj`, select the **Leash** target, Product → Run (⌘R).
+
+A clip-and-strap mark appears in the menu bar.
 
 1. Pick the project folder.
 2. Pick the agent. Grey chips are not installed. **Cursor.app** lighting up still needs the CLI: `curl https://cursor.com/install -fsS | bash`, then restart Leash.
@@ -54,9 +57,9 @@ Leash does not open the agent’s UI. It finds a CLI on your PATH (`leash status
 
 | Agent | How |
 |---|---|
-| OpenCode | `opencode run` (preferred default) |
+| OpenCode | ACP (`opencode acp`); print fallback `opencode run --format json` |
 | Claude Code | `claude -p` with permissions bypassed |
-| Cursor CLI | `cursor-agent -p --print` |
+| Cursor CLI | ACP (`cursor-agent acp`); print fallback `-p --print` |
 | Codex | `codex exec --full-auto` |
 | Hermes / Grok | ACP one-shot (`hermes acp` / `grok agent stdio`) |
 

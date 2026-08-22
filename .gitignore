@@ -2,6 +2,7 @@
 /dist/
 *.app
 DerivedData/
+macos/.derived/
 .DS_Store
 *.xcuserstate
 xcuserdata/
