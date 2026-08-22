@@ -15,13 +15,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/leashapp/leash/internal/acp"
+	"github.com/leashapp/leash/internal/agents"
 	"github.com/leashapp/leash/internal/config"
 	"github.com/leashapp/leash/internal/install"
 	"github.com/leashapp/leash/internal/server"
 )
 
 const (
-	version     = "0.5.0"
+	version     = "0.6.0"
 	maxHookBody = 1 << 20
 )
 
@@ -58,6 +60,8 @@ func main() {
 		err = cmdRetry()
 	case "skip":
 		err = cmdSkip()
+	case "acp":
+		err = cmdACP()
 	case "version", "-v", "--version":
 		fmt.Println(version)
 		return
@@ -84,7 +88,7 @@ func usage() {
   leash watch [path]       Add a folder to protect (default: cwd)
   leash watch --remove [path]
   leash undo               Restore files from the last burst in that folder
-  leash status             Show daemon, mission phase, pending approval
+  leash status             Show daemon, agents, mission phase, pending approval
   leash demo [command]     Fake a dangerous hook (for recording)
   leash demo mission       Plan → tools → fail → gate (HUD demo)
   leash decide ID allow|always|kill
@@ -92,6 +96,7 @@ func usage() {
   leash interrupt [TEXT]   Kill the current/next tool
   leash retry              Ask the agent to retry the last failed tool
   leash skip               Dismiss the last failed tool
+  leash acp [--] <agent>   Permission socket in front of an ACP agent
   leash version
 `)
 }
@@ -185,8 +190,32 @@ func cmdInstall() error {
 	fmt.Println("  Codex        ~/.codex/hooks.json")
 	fmt.Println("  OpenCode     ~/.config/opencode/plugins/leash.js")
 	fmt.Println("then: leash serve   (or open Leash.app)")
+	fmt.Println("ACP agents (no hook file): leash acp cursor|opencode|hermes|grok")
+	printCensus(agents.Scan(agents.DefaultProbe()))
 	fmt.Println("custom agent: see docs/INTEGRATION.md")
 	return nil
+}
+
+func printCensus(found []agents.Found) {
+	for _, a := range found {
+		state := "missing"
+		if a.Installed {
+			state = "installed"
+			switch {
+			case a.Hooked && (a.Door == agents.DoorACP || a.Door == agents.DoorBoth):
+				state = "hooks+acp"
+			case a.Hooked:
+				state = "hooks"
+			case a.Door == agents.DoorACP || a.Door == agents.DoorBoth:
+				state = "acp"
+			}
+		}
+		line := fmt.Sprintf("  %-11s %s", a.Name, state)
+		if a.Installed && a.ACP != "" && !a.Hooked {
+			line += "  (leash acp -- " + a.ACP + ")"
+		}
+		fmt.Println(line)
+	}
 }
 
 func cmdUninstall() error {
@@ -236,12 +265,16 @@ func cmdStatus() error {
 		cfg, _ := config.Load()
 		if !server.DaemonRunning(cfg.Port) {
 			fmt.Println("daemon: off")
+			printCensus(agents.Scan(agents.DefaultProbe()))
 			fmt.Println("start with: leash serve")
 			return nil
 		}
 		return err
 	}
 	fmt.Printf("daemon: on  :%d  %s\n", st.Port, st.Status)
+	if len(st.Agents) > 0 {
+		printCensus(st.Agents)
+	}
 	if st.Mission.Phase != "" && st.Mission.Phase != "idle" {
 		fmt.Printf("mission: %s", st.Mission.Phase)
 		if st.Mission.Title != "" {
@@ -287,6 +320,23 @@ func cmdStatus() error {
 		}
 	}
 	return nil
+}
+
+func cmdACP() error {
+	cfg, err := config.Load()
+	if err != nil {
+		cfg = config.File{}
+	}
+	launch, err := acp.ResolveLaunch(os.Args[2:], agents.DefaultProbe())
+	if err != nil {
+		return err
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	gate := acp.DaemonGate(cfg.Port, cfg.Token)
+	notify := acp.DaemonNotify(cfg.Port, cfg.Token)
+	fmt.Fprintf(os.Stderr, "leash acp: %s %s\n", launch.Command, strings.Join(launch.Args, " "))
+	return acp.RunStdio(ctx, launch, gate, notify)
 }
 
 func cmdDecide() error {

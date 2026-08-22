@@ -16,6 +16,15 @@ struct MenuBarView: View {
                 .padding(.top, LeashSpace.xl)
                 .padding(.bottom, LeashSpace.sm)
 
+            if let line = LeashFormat.agentLine(app.state.agents) {
+                Text(line)
+                    .font(LeashType.caption)
+                    .foregroundStyle(LeashPaint.muted)
+                    .lineLimit(2)
+                    .padding(.horizontal, LeashSpace.md)
+                    .padding(.bottom, LeashSpace.sm)
+            }
+
             ForEach(Array(app.state.allPending.enumerated()), id: \.element.id) { i, pending in
                 LeashPendingRow(pending: pending, queued: i > 0) {
                     ApprovalHUD.shared.show(model: app)
@@ -41,7 +50,7 @@ struct MenuBarView: View {
             ) {
                 Task { await app.undo() }
             }
-            LeashMenuRow(title: LeashCopy.installHooks, subtitle: LeashCopy.installAgents, symbol: LeashSymbol.install) {
+            LeashMenuRow(title: LeashCopy.installHooks, subtitle: LeashFormat.installSubtitle(app.state.agents), symbol: LeashSymbol.install) {
                 Task { await app.installHooks() }
             }
 
