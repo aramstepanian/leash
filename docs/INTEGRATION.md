@@ -50,6 +50,33 @@ Write JSON to stdin, read JSON from stdout. Exit 0.
 
 Optional `agent` is a short label for the Mac panel (`OpenCode`, `Codex`, your work agent's name). Cursor and Claude are inferred from the hook dialect if you omit it.
 
+Mission Control also accepts:
+
+```json
+{ "protocol": "leash", "hook_event_name": "plan", "cwd": "/repo", "text": "Fix login", "steps": ["read", "edit", "test"] }
+```
+
+```json
+{ "protocol": "leash", "hook_event_name": "thought", "cwd": "/repo", "text": "checking middleware" }
+```
+
+```json
+{ "protocol": "leash", "hook_event_name": "post_tool", "cwd": "/repo", "tool_name": "Bash", "tool_input": { "command": "npm test" }, "error": "exit status 1", "duration_ms": 1420 }
+```
+
+`leash install` already wires post-tool hooks for Cursor, Claude, and OpenCode so the inspector can show args, result, and duration. Custom agents should send `post_tool` after the call, not only `pre_tool`.
+
+Steer / interrupt / retry are HTTP:
+
+```
+POST /v1/steer       { "text": "use bun, not npm" }
+POST /v1/interrupt   { "text": "stop" }
+POST /v1/retry       {}
+POST /v1/skip        {}
+```
+
+A pending steer is injected as additional context on the next tool (Claude `additionalContext`, Cursor `agent_message`). Interrupt denies the current or next tool. Retry writes a steer note from the last tool error. None of this runs a second agent.
+
 **Always** is scoped to the project folder Leash matched for `cwd`. A rule saved in one repo does not silently allow the same command in another. Older rules with no `root` still match everywhere.
 
 `cwd` picks the project: the most specific watched folder that contains it, or `cwd` itself. Unknown project folders are added to the watch list automatically (not `$HOME` or `/`, and not a nested directory of a folder you already watch).

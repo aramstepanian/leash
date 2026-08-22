@@ -428,3 +428,79 @@ func jsonString(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b)
 }
+
+func TestMissionLoop(t *testing.T) {
+	t.Setenv("LEASH_HOME", t.TempDir())
+	root := t.TempDir()
+	s := New(config.File{Token: "t", WatchRoots: []string{root}})
+	s.Auto = func(policy.Assessment) hookfmt.Decision { return hookfmt.DecisionKill }
+
+	if _, err := s.HandleHook(context.Background(), []byte(`{
+		"protocol":"leash","hook_event_name":"plan","cwd":`+jsonString(root)+`,
+		"agent":"Demo","text":"Fix the login","steps":["read auth.ts","run tests"]
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.HandleHook(context.Background(), []byte(`{
+		"protocol":"leash","hook_event_name":"thought","cwd":`+jsonString(root)+`,
+		"agent":"Demo","text":"checking middleware"
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.HandleHook(context.Background(), []byte(`{
+		"cwd":`+jsonString(root)+`,"hook_event_name":"PreToolUse","tool_name":"Bash",
+		"tool_input":{"command":"git status"}
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.HandleHook(context.Background(), []byte(`{
+		"protocol":"leash","hook_event_name":"post_tool","cwd":`+jsonString(root)+`,
+		"tool_name":"Bash","tool_input":{"command":"npm test"},
+		"error":"exit status 1","duration_ms":88
+	}`)); err != nil {
+		t.Fatal(err)
+	}
+
+	st := s.Snapshot()
+	if st.Mission.Phase != "failed" {
+		t.Fatalf("phase %s", st.Mission.Phase)
+	}
+	if st.Mission.Failed == nil || st.Mission.Failed.Error == "" {
+		t.Fatalf("failed %+v", st.Mission.Failed)
+	}
+	kinds := map[string]int{}
+	for _, e := range st.Mission.Timeline {
+		kinds[e.Kind]++
+	}
+	if kinds["plan"] != 1 || kinds["thought"] != 1 || kinds["error"] < 1 {
+		t.Fatalf("timeline kinds %v %+v", kinds, st.Mission.Timeline)
+	}
+
+	s.mission.SetSteer("use bun")
+	out, err := s.HandleHook(context.Background(), []byte(`{
+		"hook_event_name":"PreToolUse","cwd":`+jsonString(root)+`,
+		"tool_name":"Bash","tool_input":{"command":"git status"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out, []byte("use bun")) && !bytes.Contains(out, []byte("Operator")) {
+		t.Fatalf("steer not injected: %s", out)
+	}
+}
+
+func TestInterruptKillsNextTool(t *testing.T) {
+	t.Setenv("LEASH_HOME", t.TempDir())
+	s := New(config.File{Token: "t", WatchRoot: "/proj"})
+	s.mission.ArmInterrupt()
+	out, err := s.HandleHook(context.Background(), []byte(`{
+		"cwd":"/proj","hook_event_name":"PreToolUse","tool_name":"Bash",
+		"tool_input":{"command":"git status"}
+	}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out, []byte("deny")) && !bytes.Contains(out, []byte("Interrupted")) {
+		t.Fatalf("want interrupt deny, got %s", out)
+	}
+}

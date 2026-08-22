@@ -4,7 +4,7 @@
 
 Seatbelt for coding agents.
 
-A Mac menu bar app that pops a native **Allow / Always / Kill** panel when a coding agent is about to run something dangerous, and can **undo the last burst of file changes**.
+A Mac menu bar app that is **mission control** for coding agents: a game HUD for the plan → act → review loop, with **Allow / Always / Kill** gates, a live tool inspector, and undo for the last burst of file changes.
 
 Works with **Cursor**, **OpenCode**, **Claude Code**, **Codex**, and any custom agent that can call a hook. Local only. No account. No model.
 
@@ -15,10 +15,11 @@ Works with **Cursor**, **OpenCode**, **Claude Code**, **Codex**, and any custom 
 ## What it does
 
 1. Installs hooks (or a tiny plugin) into the agents you use.
-2. Safe calls pass through with no UI (`git status`, reads, normal edits).
-3. Dangerous calls wait on a Mac panel: `rm -rf`, `sudo`, `curl | sh`, force-push, `.env`, writes outside the project.
-4. Before a mutating call, Leash snapshots the files it can see.
-5. **Undo last burst** puts those files back.
+2. Mission Control opens as a floating HUD: plan → act → review, not a chat transcript.
+3. Safe calls pass through with no gate (`git status`, reads, normal edits) and still show up on the timeline.
+4. Dangerous calls wait on a keyboard-first panel: `rm -rf`, `sudo`, `curl | sh`, force-push, `.env`, writes outside the project.
+5. Before a mutating call, Leash snapshots the files it can see. **Rewind** puts those files back.
+6. Failed tools show the exact error. Retry arms a steer note; Skip dismisses it.
 
 ## Quick start (Mac)
 
@@ -35,17 +36,19 @@ Run the **Leash** target. A clip-and-strap mark appears in the menu bar.
 2. Leave Leash running. It starts the local daemon for you.
 3. Use Cursor, OpenCode, `claude`, or `codex` as usual — even several at once, in several folders.
 4. When something scary is about to run, the panel appears.
-   - **Kill** — Esc
+   - **Kill / interrupt** — Esc
    - **Allow** — Return
    - **Always** — ⌘Return (exact command/path match in that folder, not a prefix)
+   - **Steer** — ⌘L
+   - **Rewind** — ⌘Z
 
 Record the demo without waiting for a real agent:
 
 ```bash
-~/.leash/bin/leash demo
+~/.leash/bin/leash demo mission
 ```
 
-That fakes a `Bash` call of `rm -rf ./dist` and blocks until you decide.
+That runs a toy plan → tool → failing tests → `rm -rf ./dist` gate. Open **Mission Control** from the menu bar.
 
 ## CLI (no UI)
 
@@ -93,6 +96,7 @@ Normal source edits and read-only commands do **not** prompt. They still snapsho
 cmd/leash/           CLI + daemon
 internal/policy/     allow vs ask
 internal/burst/      file snapshot + undo
+internal/mission/    plan → act → review timeline
 internal/server/     localhost HTTP
 internal/install/    Cursor, Claude, Codex, OpenCode wiring
 docs/INTEGRATION.md  protocol for any other agent

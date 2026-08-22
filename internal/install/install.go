@@ -93,6 +93,18 @@ func mergeClaude(bin string, timeoutSec int) error {
 		},
 	}
 	hooks["PreToolUse"] = upsertGroup(asSlice(hooks["PreToolUse"]), entry)
+	post := map[string]any{
+		"matcher": "*",
+		"hooks": []any{
+			map[string]any{
+				"type":    "command",
+				"command": hookCommand(bin, "Claude"),
+				"timeout": 8,
+			},
+		},
+	}
+	hooks["PostToolUse"] = upsertGroup(asSlice(hooks["PostToolUse"]), post)
+	hooks["PostToolUseFailure"] = upsertGroup(asSlice(hooks["PostToolUseFailure"]), post)
 	return writeJSON(path, root)
 }
 
@@ -107,6 +119,8 @@ func stripClaude() error {
 		return nil
 	}
 	hooks["PreToolUse"] = filterGroups(asSlice(hooks["PreToolUse"]))
+	hooks["PostToolUse"] = filterGroups(asSlice(hooks["PostToolUse"]))
+	hooks["PostToolUseFailure"] = filterGroups(asSlice(hooks["PostToolUseFailure"]))
 	return writeJSON(path, root)
 }
 
@@ -271,6 +285,13 @@ func mergeCursor(bin string, timeoutSec int) error {
 	for _, ev := range []string{"preToolUse", "beforeShellExecution"} {
 		hooks[ev] = upsertCommand(asSlice(hooks[ev]), entry)
 	}
+	post := map[string]any{
+		"command": hookCommand(bin, "Cursor"),
+		"timeout": 8,
+	}
+	for _, ev := range []string{"postToolUse", "afterShellExecution", "afterFileEdit"} {
+		hooks[ev] = upsertCommand(asSlice(hooks[ev]), post)
+	}
 	return writeJSON(path, root)
 }
 
@@ -284,7 +305,7 @@ func stripCursor() error {
 	if hooks == nil {
 		return nil
 	}
-	for _, ev := range []string{"preToolUse", "beforeShellExecution", "beforeMCPExecution", "beforeReadFile"} {
+	for _, ev := range []string{"preToolUse", "beforeShellExecution", "beforeMCPExecution", "beforeReadFile", "postToolUse", "afterShellExecution", "afterFileEdit"} {
 		hooks[ev] = filterCommands(asSlice(hooks[ev]))
 	}
 	return writeJSON(path, root)
@@ -385,6 +406,28 @@ export const Leash = async ({ directory }) => {
       if (isDeny(out)) {
         throw new Error(reason(out))
       }
+      const note = out && out.steer
+      if (note && output && typeof output === "object") {
+        output.message = String(note)
+      }
+    },
+    "tool.execute.after": async (input, output) => {
+      const err = (output && (output.error || output.stderr)) || ""
+      const payload = {
+        protocol: "leash",
+        hook_event_name: err ? "leash.tool_error" : "post_tool",
+        agent: "OpenCode",
+        cwd: directory,
+        tool_name: input.tool,
+        tool_input: (output && output.args) || {},
+        error: typeof err === "string" ? err : (err && err.message) || "",
+        tool_output: output && (output.output || output.result || ""),
+      }
+      spawnSync(LEASH, ["hook"], {
+        input: JSON.stringify(payload),
+        encoding: "utf8",
+        timeout: 8000,
+      })
     },
   }
 }

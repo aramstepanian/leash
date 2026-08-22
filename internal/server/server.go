@@ -23,6 +23,7 @@ import (
 	"github.com/leashapp/leash/internal/burst"
 	"github.com/leashapp/leash/internal/config"
 	"github.com/leashapp/leash/internal/hookfmt"
+	"github.com/leashapp/leash/internal/mission"
 	"github.com/leashapp/leash/internal/policy"
 )
 
@@ -46,6 +47,7 @@ type Server struct {
 	http      *http.Server
 	ready     chan struct{}
 	readyOnce sync.Once
+	mission   *mission.Log
 }
 
 type Pending struct {
@@ -79,9 +81,10 @@ type State struct {
 		Files     []string  `json:"files"`
 		Root      string    `json:"root,omitempty"`
 	} `json:"burst,omitempty"`
-	LastKill    *time.Time    `json:"lastKill,omitempty"`
-	AlwaysAllow []policy.Rule `json:"alwaysAllow"`
-	Port        int           `json:"port"`
+	LastKill    *time.Time       `json:"lastKill,omitempty"`
+	AlwaysAllow []policy.Rule    `json:"alwaysAllow"`
+	Port        int              `json:"port"`
+	Mission     mission.Snapshot `json:"mission"`
 }
 
 func New(cfg config.File) *Server {
@@ -98,6 +101,7 @@ func New(cfg config.File) *Server {
 		Log:        slog.Default(),
 		pending:    map[string]*Pending{},
 		ready:      make(chan struct{}),
+		mission:    &mission.Log{},
 	}
 }
 
@@ -125,6 +129,10 @@ func (s *Server) ListenAndServe() error {
 	mux.HandleFunc("POST /v1/decision", s.auth(s.handleDecision))
 	mux.HandleFunc("POST /v1/watch", s.auth(s.handleWatch))
 	mux.HandleFunc("POST /v1/undo", s.auth(s.handleUndo))
+	mux.HandleFunc("POST /v1/steer", s.auth(s.handleSteer))
+	mux.HandleFunc("POST /v1/interrupt", s.auth(s.handleInterrupt))
+	mux.HandleFunc("POST /v1/retry", s.auth(s.handleRetry))
+	mux.HandleFunc("POST /v1/skip", s.auth(s.handleSkip))
 	srv := &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
@@ -242,6 +250,14 @@ func (s *Server) Snapshot() State {
 			st.Status = "watching"
 		}
 	}
+	waiting := st.Status == "waiting"
+	st.Mission = s.mission.Snapshot(waiting, st.Burst != nil)
+	if st.Mission.Phase == "act" && st.Status == "idle" {
+		st.Status = "watching"
+	}
+	if st.Mission.Phase == "failed" {
+		st.Status = "failed"
+	}
 	return st
 }
 
@@ -336,6 +352,13 @@ func (s *Server) handleUndo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
+	s.mission.Append(mission.Event{
+		ID:     newID(),
+		Kind:   "undo",
+		Title:  "Rewind",
+		Detail: fmt.Sprintf("restored %d files", n),
+		Result: "ok",
+	})
 	writeJSON(w, map[string]any{"restored": n})
 }
 
@@ -430,10 +453,6 @@ func (s *Server) HandleHook(ctx context.Context, body []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !hookfmt.IsPre(ev) {
-		return hookfmt.SilentAllow(ev), nil
-	}
-	s.Bursts.CloseIfIdle()
 
 	s.mu.Lock()
 	roots := append([]string{}, s.Cfg.WatchRoots...)
@@ -452,6 +471,23 @@ func (s *Server) HandleHook(ctx context.Context, body []byte) ([]byte, error) {
 		root = policy.MatchRoot(ev.CWD, append(roots, ev.CWD))
 	}
 
+	if hookfmt.IsPlan(ev) {
+		s.recordPlan(ev, root)
+		return hookfmt.SilentAllow(ev), nil
+	}
+	if hookfmt.IsThought(ev) {
+		s.recordThought(ev, root)
+		return hookfmt.SilentAllow(ev), nil
+	}
+	if hookfmt.IsPost(ev) || hookfmt.IsFailure(ev) {
+		return s.handlePostEvent(ev, root), nil
+	}
+	if !hookfmt.IsPre(ev) {
+		return hookfmt.SilentAllow(ev), nil
+	}
+
+	s.Bursts.CloseIfIdle()
+
 	a := policy.Assess(ev.ToolName, ev.CWD, root, ev.ToolInput, always)
 	if len(a.Detail) > 8000 {
 		a.Detail = a.Detail[:8000] + "…"
@@ -462,17 +498,70 @@ func (s *Server) HandleHook(ctx context.Context, body []byte) ([]byte, error) {
 		b.Touch(a.Paths)
 	}
 
+	agent := hookfmt.AgentLabel(ev)
+
 	if a.Verdict == policy.Allow {
-		return hookfmt.SilentAllow(ev), nil
+		s.mission.StartLive(policyTool(ev.ToolName), a.Detail, agent, root, "running")
+		s.mission.Append(mission.Event{
+			ID:     newID(),
+			Kind:   "tool",
+			Agent:  agent,
+			Tool:   policyTool(ev.ToolName),
+			Title:  a.Title,
+			Detail: a.Detail,
+			Paths:  a.Paths,
+			Root:   root,
+			Result: "ok",
+		})
+		out := s.replyPre(ev, hookfmt.DecisionAllow, "Allowed by Leash")
+		if !bytes.Contains(out, []byte("deny")) {
+			return out, nil
+		}
+		return out, nil
 	}
 
 	if d, ok := s.recall(ev, a, root); ok {
 		if d == hookfmt.DecisionKill {
 			reason := "Blocked by Leash: " + strings.Join(a.Reasons, ", ")
-			return hookfmt.Encode(ev, d, reason), nil
+			s.mission.Append(mission.Event{
+				ID:     newID(),
+				Kind:   "interrupt",
+				Agent:  agent,
+				Tool:   policyTool(ev.ToolName),
+				Title:  a.Title,
+				Detail: a.Detail,
+				Root:   root,
+				Result: "deny",
+			})
+			return s.replyPre(ev, d, reason), nil
 		}
-		return hookfmt.Encode(ev, d, "Allowed by Leash"), nil
+		s.mission.StartLive(policyTool(ev.ToolName), a.Detail, agent, root, "running")
+		s.mission.Append(mission.Event{
+			ID:     newID(),
+			Kind:   "tool",
+			Agent:  agent,
+			Tool:   policyTool(ev.ToolName),
+			Title:  a.Title,
+			Detail: a.Detail,
+			Paths:  a.Paths,
+			Root:   root,
+			Result: "ok",
+		})
+		return s.replyPre(ev, d, "Allowed by Leash"), nil
 	}
+
+	s.mission.StartLive(policyTool(ev.ToolName), a.Detail, agent, root, "waiting")
+	s.mission.Append(mission.Event{
+		ID:     newID(),
+		Kind:   "gate",
+		Agent:  agent,
+		Tool:   policyTool(ev.ToolName),
+		Title:  a.Title,
+		Detail: a.Detail,
+		Paths:  a.Paths,
+		Root:   root,
+		Result: "waiting",
+	})
 
 	dec, err := s.ask(ctx, ev, a, root)
 	if err != nil {
@@ -480,7 +569,8 @@ func (s *Server) HandleHook(ctx context.Context, body []byte) ([]byte, error) {
 		if errors.Is(err, errTooManyPending) {
 			reason = "Leash is busy"
 		}
-		return hookfmt.Encode(ev, hookfmt.DecisionKill, reason), nil
+		s.mission.ClearLive()
+		return s.replyPre(ev, hookfmt.DecisionKill, reason), nil
 	}
 	s.remember(ev, a, dec, root)
 	reason := "Allowed by Leash"
@@ -489,8 +579,32 @@ func (s *Server) HandleHook(ctx context.Context, body []byte) ([]byte, error) {
 		if reason == "Blocked by Leash: " {
 			reason = "Blocked by Leash"
 		}
+		s.mission.Append(mission.Event{
+			ID:     newID(),
+			Kind:   "interrupt",
+			Agent:  agent,
+			Tool:   policyTool(ev.ToolName),
+			Title:  a.Title,
+			Detail: a.Detail,
+			Root:   root,
+			Result: "deny",
+		})
+		s.mission.ClearLive()
+	} else {
+		s.mission.StartLive(policyTool(ev.ToolName), a.Detail, agent, root, "running")
+		s.mission.Append(mission.Event{
+			ID:     newID(),
+			Kind:   "tool",
+			Agent:  agent,
+			Tool:   policyTool(ev.ToolName),
+			Title:  a.Title,
+			Detail: a.Detail,
+			Paths:  a.Paths,
+			Root:   root,
+			Result: "ok",
+		})
 	}
-	return hookfmt.Encode(ev, dec, reason), nil
+	return s.replyPre(ev, dec, reason), nil
 }
 
 func (s *Server) rememberWatch(cwd string) {

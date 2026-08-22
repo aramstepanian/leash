@@ -22,7 +22,7 @@ enum LeashPaint {
     static let vermillion = Color(nsColor: NSColor(srgbRed: 0.839, green: 0.271, blue: 0.196, alpha: 1))
     static let bone = Color(nsColor: NSColor(srgbRed: 0.969, green: 0.953, blue: 0.933, alpha: 1))
     static let amber = Color(nsColor: NSColor(srgbRed: 0.788, green: 0.518, blue: 0.165, alpha: 1))
-    static let steel = Color(nsColor: NSColor(srgbRed: 0.353, green: 0.478, blue: 0.659, alpha: 1))
+    static let moss = Color(nsColor: NSColor(srgbRed: 0.310, green: 0.545, blue: 0.427, alpha: 1))
 }
 
 enum LeashKind {
@@ -150,6 +150,16 @@ struct Hairline: View {
 }
 
 enum LeashChrome {
+    static func mission(_ window: NSWindow) {
+        stripTitlebar(window)
+        window.isMovableByWindowBackground = true
+        window.hasShadow = true
+        window.level = .floating
+        window.collectionBehavior.insert(.fullScreenAuxiliary)
+        window.backgroundColor = LeashPaint.paperNS
+        window.isOpaque = true
+    }
+
     static func approval(_ window: NSWindow) {
         stripTitlebar(window)
         window.isMovableByWindowBackground = true

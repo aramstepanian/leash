@@ -20,6 +20,9 @@ struct MenuBarView: View {
                     .padding(.bottom, 6)
             }
 
+            MenuRow(title: "Mission Control", subtitle: missionSubtitle, symbol: "rectangle.3.group") {
+                app.openMission()
+            }
             MenuRow(title: "Watch folders", subtitle: watchSubtitle, symbol: "folder") {
                 app.pickFolder()
             }
@@ -158,6 +161,14 @@ struct MenuBarView: View {
         if app.daemonError != nil { return LeashPaint.muted }
         if app.state.status == "watching" { return Color(nsColor: NSColor(srgbRed: 0.310, green: 0.545, blue: 0.427, alpha: 1)) }
         return LeashPaint.muted
+    }
+
+    private var missionSubtitle: String {
+        let phase = app.state.mission?.phase ?? "idle"
+        if let title = app.state.mission?.title, !title.isEmpty, phase != "idle" {
+            return "\(phase) · \(title)"
+        }
+        return "Plan · act · review"
     }
 
     private var watchSubtitle: String {

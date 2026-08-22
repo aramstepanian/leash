@@ -15,6 +15,8 @@
 		A20000000000000100000006 /* ApprovalView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000100000006 /* ApprovalView.swift */; };
 		A20000000000000100000007 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000100000010 /* Theme.swift */; };
 		A20000000000000100000008 /* ApprovalHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000100000011 /* ApprovalHUD.swift */; };
+		A20000000000000100000010 /* MissionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000100000013 /* MissionView.swift */; };
+		A20000000000000100000011 /* MissionHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000100000014 /* MissionHUD.swift */; };
 		A20000000000000100000009 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000100000012 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
@@ -27,6 +29,8 @@
 		A10000000000000100000006 /* ApprovalView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApprovalView.swift; sourceTree = "<group>"; };
 		A10000000000000100000010 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
 		A10000000000000100000011 /* ApprovalHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApprovalHUD.swift; sourceTree = "<group>"; };
+		A10000000000000100000013 /* MissionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissionView.swift; sourceTree = "<group>"; };
+		A10000000000000100000014 /* MissionHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissionHUD.swift; sourceTree = "<group>"; };
 		A10000000000000100000007 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A10000000000000100000008 /* Leash.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Leash.entitlements; sourceTree = "<group>"; };
 		A10000000000000100000009 /* Leash.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Leash.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -73,6 +77,8 @@
 				A10000000000000100000005 /* MenuBarView.swift */,
 				A10000000000000100000006 /* ApprovalView.swift */,
 				A10000000000000100000011 /* ApprovalHUD.swift */,
+				A10000000000000100000013 /* MissionView.swift */,
+				A10000000000000100000014 /* MissionHUD.swift */,
 				A10000000000000100000010 /* Theme.swift */,
 				A10000000000000100000012 /* Assets.xcassets */,
 				A10000000000000100000007 /* Info.plist */,
@@ -155,6 +161,8 @@
 				A20000000000000100000006 /* ApprovalView.swift in Sources */,
 				A20000000000000100000007 /* Theme.swift in Sources */,
 				A20000000000000100000008 /* ApprovalHUD.swift in Sources */,
+				A20000000000000100000010 /* MissionView.swift in Sources */,
+				A20000000000000100000011 /* MissionHUD.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -205,7 +213,7 @@
 				INFOPLIST_KEY_LSUIElement = YES;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.3.0;
+				MARKETING_VERSION = 0.5.0;
 				PRODUCT_BUNDLE_IDENTIFIER = app.leash.desktop;
 				PRODUCT_NAME = Leash;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -227,7 +235,7 @@
 				INFOPLIST_KEY_LSUIElement = YES;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.3.0;
+				MARKETING_VERSION = 0.5.0;
 				PRODUCT_BUNDLE_IDENTIFIER = app.leash.desktop;
 				PRODUCT_NAME = Leash;
 				SWIFT_EMIT_LOC_STRINGS = YES;

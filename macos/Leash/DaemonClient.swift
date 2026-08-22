@@ -80,6 +80,34 @@ struct DaemonClient {
         try check(res)
     }
 
+    func steer(_ text: String) async throws {
+        var req = try authorized("POST", "/v1/steer")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["text": text])
+        let (_, res) = try await URLSession.shared.data(for: req)
+        try check(res)
+    }
+
+    func interrupt(_ text: String) async throws {
+        var req = try authorized("POST", "/v1/interrupt")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["text": text])
+        let (_, res) = try await URLSession.shared.data(for: req)
+        try check(res)
+    }
+
+    func retry() async throws {
+        var req = try authorized("POST", "/v1/retry")
+        req.httpBody = Data("{}".utf8)
+        let (_, res) = try await URLSession.shared.data(for: req)
+        try check(res)
+    }
+
+    func skip() async throws {
+        var req = try authorized("POST", "/v1/skip")
+        req.httpBody = Data("{}".utf8)
+        let (_, res) = try await URLSession.shared.data(for: req)
+        try check(res)
+    }
+
     private func authorized(_ method: String, _ path: String) throws -> URLRequest {
         var req = URLRequest(url: base.appendingPathComponent(String(path.dropFirst())))
         req.httpMethod = method

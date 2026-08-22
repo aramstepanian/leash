@@ -11,6 +11,8 @@ final class AppModel: ObservableObject {
     @Published var lastUndo: String?
     @Published var notice: String?
     @Published var deciding = false
+    @Published var selectedEventID: String?
+    @Published var steerDraft = ""
 
     private var client = DaemonClient()
     private var timer: Timer?
@@ -40,12 +42,20 @@ final class AppModel: ObservableObject {
     func refresh() async {
         do {
             let next = try await client.state()
+            let prevLast = state.mission?.timeline.last?.id
             let appeared = next.pending != nil && next.pending?.id != lastPendingID
+            let missionLive = next.mission?.phase == "act" || next.mission?.phase == "failed" || next.pending != nil
             state = next
             daemonError = nil
+            if selectedEventID == nil || selectedEventID == prevLast, let last = next.mission?.timeline.last?.id {
+                selectedEventID = last
+            }
             if appeared {
                 lastPendingID = next.pending?.id
                 presentApproval()
+            }
+            if missionLive {
+                MissionHUD.shared.show(model: self)
             }
             if next.pending == nil {
                 lastPendingID = nil
@@ -79,6 +89,58 @@ final class AppModel: ObservableObject {
         } catch {
             daemonError = error.localizedDescription
         }
+    }
+
+    func steer() async {
+        let text = steerDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        do {
+            try await client.steer(text)
+            steerDraft = ""
+            notice = "Steering"
+            await refresh()
+        } catch {
+            daemonError = error.localizedDescription
+        }
+    }
+
+    func interrupt() async {
+        let text = steerDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+        do {
+            if state.pending != nil {
+                await decide("kill")
+            } else {
+                try await client.interrupt(text)
+                steerDraft = ""
+                await refresh()
+            }
+        } catch {
+            daemonError = error.localizedDescription
+        }
+    }
+
+    func retry() async {
+        do {
+            try await client.retry()
+            notice = "Retry armed"
+            await refresh()
+        } catch {
+            daemonError = error.localizedDescription
+        }
+    }
+
+    func skipFail() async {
+        do {
+            try await client.skip()
+            await refresh()
+        } catch {
+            daemonError = error.localizedDescription
+        }
+    }
+
+    func openMission() {
+        MissionHUD.shared.show(model: self)
     }
 
     func pickFolder() {

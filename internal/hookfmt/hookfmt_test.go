@@ -139,6 +139,35 @@ func TestStripSecretsFromToolInput(t *testing.T) {
 	}
 }
 
+func TestParsePlanAndPost(t *testing.T) {
+	ev, err := Parse([]byte(`{"protocol":"leash","hook_event_name":"plan","agent":"Demo","cwd":"/p","text":"Fix auth","steps":["read","edit","test"]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !IsPlan(ev) || ev.Text != "Fix auth" || len(ev.Steps) != 3 {
+		t.Fatalf("%+v", ev)
+	}
+	ev, err = Parse([]byte(`{"protocol":"leash","hook_event_name":"post_tool","tool_name":"Bash","tool_input":{"command":"npm test"},"error":"exit status 1","duration_ms":120}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !IsPost(ev) || ev.Text != "exit status 1" || ev.DurationMs != 120 {
+		t.Fatalf("post %+v", ev)
+	}
+}
+
+func TestEncodeSteerAdditionalContext(t *testing.T) {
+	ev := Event{HookEventName: "PreToolUse"}
+	var out map[string]any
+	if err := json.Unmarshal(EncodeExtra(ev, DecisionAllow, "Allowed by Leash", "use bun"), &out); err != nil {
+		t.Fatal(err)
+	}
+	h := out["hookSpecificOutput"].(map[string]any)
+	if h["additionalContext"] != "Operator: use bun" {
+		t.Fatalf("%v", h)
+	}
+}
+
 func TestAgentLabel(t *testing.T) {
 	t.Setenv("LEASH_AGENT", "")
 	ev, err := Parse([]byte(`{"hook_event_name":"beforeShellExecution","command":"ls","cwd":"/p"}`))

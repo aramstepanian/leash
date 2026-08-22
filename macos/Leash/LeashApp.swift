@@ -11,7 +11,7 @@ struct LeashApp: App {
             MenuBarView()
                 .environmentObject(app)
         } label: {
-            LeashMenuBarLabel(pending: app.state.pending != nil)
+            LeashMenuBarLabel(pending: app.state.waitingCount > 0 || app.state.mission?.phase == "act" || app.state.mission?.phase == "failed")
         }
         .menuBarExtraStyle(.window)
     }

@@ -43,6 +43,9 @@ func TestInstallAndUninstallClaude(t *testing.T) {
 	if !strings.Contains(string(cursor), "/opt/leash/leash") || !strings.Contains(string(cursor), "preToolUse") {
 		t.Fatalf("missing cursor hook: %s", cursor)
 	}
+	if !strings.Contains(string(cursor), "postToolUse") {
+		t.Fatalf("missing cursor post hook: %s", cursor)
+	}
 	plugin, err := os.ReadFile(filepath.Join(home, ".config", "opencode", "plugins", "leash.js"))
 	if err != nil {
 		t.Fatal(err)
@@ -53,11 +56,21 @@ func TestInstallAndUninstallClaude(t *testing.T) {
 	if !strings.Contains(string(plugin), `agent: "OpenCode"`) {
 		t.Fatalf("opencode plugin should label the agent: %s", plugin)
 	}
+	if !strings.Contains(string(plugin), "tool.execute.after") {
+		t.Fatalf("opencode plugin should report results: %s", plugin)
+	}
+	first := strings.Count(string(data), "/opt/leash/leash")
+	if first < 1 {
+		t.Fatal("missing claude hook")
+	}
+	if !strings.Contains(string(data), "PostToolUse") {
+		t.Fatalf("missing claude post hook: %s", data)
+	}
 	if err := Install(bin, 540); err != nil {
 		t.Fatal(err)
 	}
 	data2, _ := os.ReadFile(filepath.Join(home, ".claude", "settings.json"))
-	if strings.Count(string(data2), "/opt/leash/leash") != 1 {
+	if strings.Count(string(data2), "/opt/leash/leash") != first {
 		t.Fatalf("hook duplicated: %s", data2)
 	}
 	if err := Uninstall(); err != nil {
