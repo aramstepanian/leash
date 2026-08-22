@@ -4,7 +4,7 @@
 
 Seatbelt for coding agents.
 
-A Mac menu bar app that is **mission control** for coding agents: a game HUD for the plan → act → review loop, with **Allow / Always / Kill** gates, a live tool inspector, and undo for the last burst of file changes.
+A Mac menu bar app that is **mission control** for coding agents: a job HUD for the plan → act → review loop, with **Allow / Always / Kill** gates, a result you can rewind, and no chat transcript.
 
 Works with **Cursor** (app + CLI), **OpenCode**, **Claude Code**, **Codex**, **Hermes**, **Grok**, and any agent that speaks hooks or ACP. Local only. No account. No model.
 
@@ -15,11 +15,10 @@ Works with **Cursor** (app + CLI), **OpenCode**, **Claude Code**, **Codex**, **H
 ## What it does
 
 1. Installs hooks (or a tiny plugin) into the agents you use.
-2. Mission Control opens as a floating HUD: plan → act → review, not a chat transcript.
-3. Safe calls pass through with no gate (`git status`, reads, normal edits) and still show up on the timeline.
+2. Mission Control opens as a floating HUD: a **job**, not a chat transcript. The live strip speaks in consequences (`delete ./dist`), not tool names.
+3. Safe inspection (`git status`, reads) passes through with no gate and stays off the tape.
 4. Dangerous calls wait on a keyboard-first panel: `rm -rf`, `sudo`, `curl | sh`, force-push, `.env`, writes outside the project.
-5. Before a mutating call, Leash snapshots the files it can see. **Rewind** puts those files back.
-6. Failed tools show the exact error. Retry arms a steer note; Skip dismisses it.
+5. Review is the files that changed. **Rewind** puts those files back. Always-allow rules and watched folders can be revoked from the menu.
 
 ## Quick start (Mac)
 
@@ -65,6 +64,8 @@ make leash
 ./bin/leash status
 ./bin/leash acp cursor     # ACP permission socket (Zed, cursor-agent, …)
 ./bin/leash decide <id> kill
+./bin/leash always         # list always-allow rules
+./bin/leash always --remove 1
 ./bin/leash undo
 ```
 

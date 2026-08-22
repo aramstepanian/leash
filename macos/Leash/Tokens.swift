@@ -106,7 +106,9 @@ enum LeashLayout {
     static let approvalLift: CGFloat = 40
     static let missionInset: CGFloat = 24
     static let shotScale: CGFloat = 2
-    static let scrubPathCap = 8
+    static let previewFiles = 8
+    static let alwaysCap = 6
+    static let folderCap = 8
     static let highlightFloor = 2
     static let approvalID = "approval"
     static let missionID = "mission"
@@ -178,7 +180,8 @@ enum LeashSymbol {
     static let undo = "arrow.uturn.backward"
     static let install = "square.and.arrow.down"
     static let quit = "power"
-    static let chevron = "chevron.right"
+    static let alwaysList = "minus.circle"
+    static let addFolder = "plus"
 }
 
 enum LeashCopy {
@@ -188,6 +191,8 @@ enum LeashCopy {
     static let outside = "Outside"
     static let ask = "Ask"
     static let mission = "Mission Control"
+    static let job = "Job"
+    static let result = "Result"
     static let idle = "Idle"
     static let needsYou = "Needs you"
     static let watching = "Watching"
@@ -196,13 +201,15 @@ enum LeashCopy {
     static let act = "Act"
     static let review = "Review"
     static let fail = "Fail"
-    static let timeline = "Timeline"
-    static let scrub = "Scrub"
+    static let tape = "Tape"
+    static let working = "Working"
+    static let done = "Done"
+    static let failedLive = "Failed"
     static let steerPrompt = "Steer the agent…"
-    static let noTool = "No tool in flight."
-    static let emptyTape = "Nothing on the tape yet."
+    static let noJob = "No job."
+    static let emptyTape = "Nothing happened yet."
     static let caughtUp = "Caught up"
-    static let noWaiting = "No tool call waiting."
+    static let noWaiting = "Nothing waiting."
     static let queued = "Queued"
     static let waitingOnYou = "Waiting on you"
     static let kill = "Kill"
@@ -224,6 +231,7 @@ enum LeashCopy {
     static let pickFolder = "Pick a folder to protect"
     static let chooseFolders = "Choose the project folders"
     static let watchFolders = "Watch folders"
+    static let addFolder = "Add folder"
     static let undoLastBurst = "Undo last burst"
     static let installHooks = "Install hooks"
     static let quitLeash = "Quit Leash"
@@ -242,6 +250,11 @@ enum LeashCopy {
     static let couldNotStart = "Could not start leash serve"
     static let steering = "Steering"
     static let retryArmed = "Retry armed"
+    static let alwaysRules = "Always"
+    static let noAlways = "No always rules"
+    static let revoked = "Revoked"
+    static let unwatched = "Stopped watching"
+    static let readyRewind = "Ready to rewind"
     static let dot = " · "
     static let reasons = "  ·  "
 
@@ -252,7 +265,7 @@ enum LeashCopy {
     static func filesBurst(_ n: Int) -> String { "\(files(n)) \(lastBurst)" }
     static func moreWaiting(_ n: Int) -> String { n == 1 ? "1 more waiting." : "\(n) more waiting." }
     static func phaseTitle(_ phase: String, title: String) -> String { "\(phase) · \(title)" }
-    static func agentTool(_ agent: String, _ tool: String) -> String { "\(agent) · \(tool)" }
+    static func andMore(_ n: Int) -> String { "+\(n) more" }
     static func restored(_ n: Int) -> String { "Restored \(files(n))" }
 }
 
@@ -320,6 +333,20 @@ enum TapeKind: String {
         self = TapeKind(rawValue: raw) ?? .thought
     }
 
+    var label: String {
+        switch self {
+        case .plan: return LeashCopy.plan
+        case .thought, .steer: return LeashCopy.steer
+        case .skip: return LeashCopy.skip
+        case .tool: return LeashCopy.act
+        case .undo: return LeashCopy.rewind
+        case .diff: return LeashCopy.result
+        case .gate: return LeashCopy.waitingOnYou
+        case .interrupt: return LeashCopy.kill
+        case .error: return LeashCopy.fail
+        }
+    }
+
     var color: Color {
         switch self {
         case .plan, .diff: return LeashPaint.steel
@@ -336,6 +363,15 @@ enum LiveStatus: String {
 
     init(_ raw: String) {
         self = LiveStatus(rawValue: raw) ?? .running
+    }
+
+    var label: String {
+        switch self {
+        case .running: return LeashCopy.working
+        case .waiting: return LeashCopy.waitingOnYou
+        case .ok: return LeashCopy.done
+        case .error: return LeashCopy.failedLive
+        }
     }
 
     var tint: Color {
@@ -394,20 +430,26 @@ enum LeashFormat {
         return String(format: "%.1fs", Double(ms) / 1000)
     }
 
-    static func agentTool(agent: String?, tool: String) -> String {
-        let name = agent?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !name.isEmpty && !tool.isEmpty { return LeashCopy.agentTool(name, tool) }
-        if !name.isEmpty { return name }
-        return tool
+    static func liveHeadline(_ live: LiveCall) -> String {
+        if let outcome = live.outcome?.trimmingCharacters(in: .whitespacesAndNewlines), !outcome.isEmpty {
+            return outcome
+        }
+        let detail = live.detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !detail.isEmpty { return detail }
+        return live.tool
+    }
+
+    static func failedHeadline(_ failed: FailedCall) -> String {
+        if let outcome = failed.outcome?.trimmingCharacters(in: .whitespacesAndNewlines), !outcome.isEmpty {
+            return outcome
+        }
+        return failed.tool
     }
 
     static func pendingHeadline(_ pending: PendingApproval) -> String {
-        let agent = pending.agent?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !agent.isEmpty && !pending.tool.isEmpty {
-            return LeashCopy.agentTool(agent, pending.tool)
-        }
-        if !agent.isEmpty { return agent }
-        return pending.title
+        let title = pending.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !title.isEmpty { return title }
+        return pending.detail
     }
 
     static func compactPath(_ path: String) -> String {
@@ -483,16 +525,32 @@ enum LeashFormat {
 
     static func undoSubtitle(_ burst: BurstInfo?) -> String {
         guard let burst else { return LeashCopy.nothingToRestore }
+        let names = burst.files.prefix(3).map { folderName($0) }
+        if !names.isEmpty {
+            var line = names.joined(separator: LeashCopy.dot)
+            let extra = burst.files.count - names.count
+            if extra > 0 { line += LeashCopy.dot + LeashCopy.andMore(extra) }
+            return line
+        }
         if let root = burst.root, !root.isEmpty {
             return LeashCopy.filesIn(burst.fileCount, folder: folderName(root))
         }
         return LeashCopy.filesBurst(burst.fileCount)
     }
 
+    static func alwaysSubtitle(_ rule: AlwaysRule) -> String {
+        var parts: [String] = []
+        if !rule.tool.isEmpty { parts.append(rule.tool) }
+        if let root = rule.root, !root.isEmpty { parts.append(folderName(root)) }
+        if parts.isEmpty { return LeashCopy.always }
+        return parts.joined(separator: LeashCopy.dot)
+    }
+
     static func waitingCall(_ pending: PendingApproval) -> LiveCall {
         LiveCall(
             tool: pending.tool,
             detail: pending.detail,
+            outcome: pending.title,
             agent: pending.agent,
             root: pending.root,
             started: nil,

@@ -73,7 +73,12 @@ func (s *Server) handleRetry(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "nothing to retry", 400)
 		return
 	}
-	note := "Retry the last failed tool: " + f.Tool
+	note := "Retry the last failed step"
+	if f.Outcome != "" {
+		note = "Retry: " + f.Outcome
+	} else if f.Tool != "" {
+		note = "Retry the last failed tool: " + f.Tool
+	}
 	if f.Error != "" {
 		note += " — " + f.Error
 	}
@@ -102,7 +107,7 @@ func (s *Server) handleSkip(w http.ResponseWriter, r *http.Request) {
 		ID:     newID(),
 		Kind:   "skip",
 		Title:  "Skip",
-		Detail: f.Tool + " failed",
+		Detail: firstNonEmpty(f.Outcome, f.Tool) + " failed",
 		Tool:   f.Tool,
 		Error:  f.Error,
 		Result: "ok",
@@ -131,15 +136,8 @@ func (s *Server) recordPlan(ev hookfmt.Event, root string) {
 }
 
 func (s *Server) recordThought(ev hookfmt.Event, root string) {
-	s.mission.Append(mission.Event{
-		ID:     newID(),
-		Kind:   "thought",
-		Agent:  hookfmt.AgentLabel(ev),
-		Title:  "Thought",
-		Detail: ev.Text,
-		Root:   root,
-		Result: "ok",
-	})
+	_ = ev
+	_ = root
 }
 
 func (s *Server) handlePostEvent(ev hookfmt.Event, root string) []byte {
@@ -151,9 +149,13 @@ func (s *Server) handlePostEvent(ev hookfmt.Event, root string) []byte {
 		result = "error"
 		errText = ev.Text
 	}
+	if result != "error" && policy.Quiet(ev.ToolName, summary) {
+		return hookfmt.SilentAllow(ev)
+	}
 	live := s.mission.FinishLive(result, ev.Text, errText, ev.DurationMs)
 	tool, detail := ev.ToolName, summary
 	dur := ev.DurationMs
+	outcome := ""
 	if live != nil {
 		if tool == "" {
 			tool = live.Tool
@@ -166,18 +168,22 @@ func (s *Server) handlePostEvent(ev hookfmt.Event, root string) []byte {
 		}
 		agent = firstNonEmpty(agent, live.Agent)
 		root = firstNonEmpty(root, live.Root)
+		outcome = live.Outcome
 	}
 	kind := "tool"
 	if result == "error" {
 		kind = "error"
 	}
 	paths := policy.Paths(ev.ToolName, ev.CWD, ev.ToolInput)
+	if outcome == "" {
+		outcome = policy.Outcome(tool, detail, paths)
+	}
 	s.mission.Append(mission.Event{
 		ID:         newID(),
 		Kind:       kind,
 		Agent:      agent,
 		Tool:       tool,
-		Title:      tool,
+		Title:      outcome,
 		Detail:     firstNonEmpty(errText, ev.Text, detail),
 		Result:     result,
 		Error:      errText,
@@ -185,13 +191,18 @@ func (s *Server) handlePostEvent(ev hookfmt.Event, root string) []byte {
 		Paths:      paths,
 		Root:       root,
 	})
+	if result == "error" && live == nil {
+		s.mission.MarkFailed(mission.Failed{
+			Tool: tool, Detail: detail, Outcome: outcome, Error: firstNonEmpty(errText, ev.Text), Agent: agent,
+		})
+	}
 	if result == "ok" && len(paths) > 0 && isWriteTool(ev.ToolName) {
 		s.mission.Append(mission.Event{
 			ID:     newID(),
 			Kind:   "diff",
 			Agent:  agent,
 			Tool:   ev.ToolName,
-			Title:  "Files",
+			Title:  "Changed files",
 			Detail: strings.Join(baseNames(paths), " · "),
 			Paths:  paths,
 			Root:   root,
@@ -244,6 +255,31 @@ func firstNonEmpty(ss ...string) string {
 		}
 	}
 	return ""
+}
+
+func visibleTape(events []mission.Event) []mission.Event {
+	out := make([]mission.Event, 0, len(events))
+	for _, e := range events {
+		if tapeQuiet(e) {
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+func tapeQuiet(e mission.Event) bool {
+	switch e.Kind {
+	case "thought":
+		return true
+	case "tool":
+		if e.Result == "error" {
+			return false
+		}
+		return policy.Quiet(e.Tool, e.Detail)
+	default:
+		return false
+	}
 }
 
 func (s *Server) replyPre(ev hookfmt.Event, d hookfmt.Decision, reason string) []byte {

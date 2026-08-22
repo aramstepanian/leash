@@ -61,13 +61,13 @@ struct ApprovalView: View {
     }
 
     private func header(_ pending: PendingApproval, kind: LeashKind) -> some View {
-        let meta = LeashFormat.agentTool(agent: pending.agent, tool: pending.tool)
+        let agent = pending.agent?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return HStack(spacing: LeashSpace.md) {
             LeashMark(filled: true, tint: kind.color)
             LeashWordmark()
             Spacer()
-            if !meta.isEmpty {
-                LeashMono(text: meta, strong: true)
+            if !agent.isEmpty {
+                LeashMono(text: agent)
             }
             KindChip(kind: kind)
         }

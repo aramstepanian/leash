@@ -77,7 +77,7 @@ POST /v1/skip        {}
 
 A pending steer is injected as additional context on the next tool (Claude `additionalContext`, Cursor `agent_message`). Interrupt denies the current or next tool. Retry writes a steer note from the last tool error. None of this runs a second agent.
 
-**Always** is scoped to the project folder Leash matched for `cwd`. A rule saved in one repo does not silently allow the same command in another. Older rules with no `root` still match everywhere.
+**Always** is scoped to the project folder Leash matched for `cwd`. A rule saved in one repo does not silently allow the same command in another. Older rules with no `root` still match everywhere. Revoke from the Mac menu or `leash always --remove N`.
 
 `cwd` picks the project: the most specific watched folder that contains it, or `cwd` itself. Unknown project folders are added to the watch list automatically (not `$HOME` or `/`, and not a nested directory of a folder you already watch).
 

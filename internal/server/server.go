@@ -139,6 +139,7 @@ func (s *Server) ListenAndServe() error {
 	mux.HandleFunc("POST /v1/interrupt", s.auth(s.handleInterrupt))
 	mux.HandleFunc("POST /v1/retry", s.auth(s.handleRetry))
 	mux.HandleFunc("POST /v1/skip", s.auth(s.handleSkip))
+	mux.HandleFunc("POST /v1/always", s.auth(s.handleAlways))
 	srv := &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
@@ -259,6 +260,7 @@ func (s *Server) Snapshot() State {
 	}
 	waiting := st.Status == "waiting"
 	st.Mission = s.mission.Snapshot(waiting, st.Burst != nil)
+	st.Mission.Timeline = visibleTape(st.Mission.Timeline)
 	if st.Mission.Phase == "act" && st.Status == "idle" {
 		st.Status = "watching"
 	}
@@ -355,6 +357,36 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 	if len(s.Cfg.WatchRoots) > 0 {
 		s.Cfg.WatchRoot = s.Cfg.WatchRoots[0]
 	}
+	cfg := s.Cfg
+	s.mu.Unlock()
+	if err := config.Save(cfg); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	writeJSON(w, s.Snapshot())
+}
+
+func (s *Server) handleAlways(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Remove  bool   `json:"remove"`
+		Tool    string `json:"tool"`
+		Pattern string `json:"pattern"`
+		Root    string `json:"root"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 32<<10)).Decode(&body); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	if !body.Remove {
+		http.Error(w, "only remove is supported", 400)
+		return
+	}
+	if strings.TrimSpace(body.Pattern) == "" {
+		http.Error(w, "pattern required", 400)
+		return
+	}
+	s.mu.Lock()
+	s.Cfg.AlwaysAllow = policy.RemoveRule(s.Cfg.AlwaysAllow, body.Tool, body.Pattern, body.Root)
 	cfg := s.Cfg
 	s.mu.Unlock()
 	if err := config.Save(cfg); err != nil {
@@ -519,7 +551,11 @@ func (s *Server) HandleHook(ctx context.Context, body []byte) ([]byte, error) {
 	agent := hookfmt.AgentLabel(ev)
 
 	if a.Verdict == policy.Allow {
-		s.mission.StartLive(policyTool(ev.ToolName), a.Detail, agent, root, "running")
+		if policy.Quiet(ev.ToolName, a.Detail) {
+			out := s.replyPre(ev, hookfmt.DecisionAllow, "Allowed by Leash")
+			return out, nil
+		}
+		s.mission.StartLive(policyTool(ev.ToolName), a.Detail, agent, root, "running", a.Title)
 		s.mission.Append(mission.Event{
 			ID:     newID(),
 			Kind:   "tool",
@@ -553,7 +589,7 @@ func (s *Server) HandleHook(ctx context.Context, body []byte) ([]byte, error) {
 			})
 			return s.replyPre(ev, d, reason), nil
 		}
-		s.mission.StartLive(policyTool(ev.ToolName), a.Detail, agent, root, "running")
+		s.mission.StartLive(policyTool(ev.ToolName), a.Detail, agent, root, "running", a.Title)
 		s.mission.Append(mission.Event{
 			ID:     newID(),
 			Kind:   "tool",
@@ -568,7 +604,7 @@ func (s *Server) HandleHook(ctx context.Context, body []byte) ([]byte, error) {
 		return s.replyPre(ev, d, "Allowed by Leash"), nil
 	}
 
-	s.mission.StartLive(policyTool(ev.ToolName), a.Detail, agent, root, "waiting")
+	s.mission.StartLive(policyTool(ev.ToolName), a.Detail, agent, root, "waiting", a.Title)
 	s.mission.Append(mission.Event{
 		ID:     newID(),
 		Kind:   "gate",
@@ -609,7 +645,7 @@ func (s *Server) HandleHook(ctx context.Context, body []byte) ([]byte, error) {
 		})
 		s.mission.ClearLive()
 	} else {
-		s.mission.StartLive(policyTool(ev.ToolName), a.Detail, agent, root, "running")
+		s.mission.StartLive(policyTool(ev.ToolName), a.Detail, agent, root, "running", a.Title)
 		s.mission.Append(mission.Event{
 			ID:     newID(),
 			Kind:   "tool",

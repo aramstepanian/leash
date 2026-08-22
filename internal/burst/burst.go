@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -302,6 +303,7 @@ func (b *Burst) Files() []string {
 	for k := range b.files {
 		out = append(out, k)
 	}
+	sort.Strings(out)
 	return out
 }
 
