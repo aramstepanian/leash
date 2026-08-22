@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	version     = "0.7.0"
+	version     = "0.8.0"
 	maxHookBody = 1 << 20
 )
 
@@ -36,6 +36,8 @@ func main() {
 	switch os.Args[1] {
 	case "serve":
 		err = cmdServe()
+	case "run":
+		err = cmdRun()
 	case "hook":
 		err = cmdHook()
 	case "undo":
@@ -81,26 +83,18 @@ func main() {
 }
 
 func usage() {
-	fmt.Fprint(os.Stderr, `Leash — seatbelt + mission control for coding agents
+	fmt.Fprint(os.Stderr, `Leash — send a prompt to an installed CLI agent
 
   leash serve              Start the local daemon (127.0.0.1)
+  leash run [--agent NAME] [--path DIR] -- PROMPT
   leash hook               Called by any hooked agent (reads stdin JSON)
   leash install            Wire Cursor, Claude Code, Codex, OpenCode
   leash uninstall          Remove those hooks / plugin
-  leash watch [path]       Add a folder to protect (default: cwd)
+  leash watch [path]       Set the folder a job runs in (default: cwd)
   leash watch --remove [path]
   leash undo               Restore files from the last burst in that folder
-  leash status             Show daemon, agents, mission phase, pending approval
-  leash demo [command]     Fake a dangerous hook (for recording)
-  leash demo mission       Plan → tools → fail → gate (HUD demo)
-  leash decide ID allow|always|kill
-  leash steer TEXT         Inject operator note into the next tool
-  leash interrupt [TEXT]   Kill the current/next tool
-  leash retry              Ask the agent to retry the last failed tool
-  leash skip               Dismiss the last failed tool
-  leash always             List always-allow rules
-  leash always --remove N  Revoke rule N from that list
-  leash acp [--] <agent>   Permission socket in front of an ACP agent
+  leash status             Show daemon, agents, and the current job
+  leash acp [--] <agent>   ACP stdio in front of an agent (auto-allow)
   leash version
 `)
 }
@@ -279,6 +273,22 @@ func cmdStatus() error {
 	if len(st.Agents) > 0 {
 		printCensus(st.Agents)
 	}
+	if j := st.Job; j != nil {
+		who := j.Status
+		if j.Agent != "" {
+			who = j.Status + "  " + j.Agent
+		}
+		fmt.Printf("job:    %s\n", who)
+		if j.Prompt != "" {
+			fmt.Printf("prompt: %s\n", j.Prompt)
+		}
+		if j.Error != "" {
+			fmt.Printf("error:  %s\n", j.Error)
+		}
+		if j.Result != "" {
+			fmt.Println(j.Result)
+		}
+	}
 	if st.Mission.Phase != "" && st.Mission.Phase != "idle" {
 		fmt.Printf("mission: %s", st.Mission.Phase)
 		if st.Mission.Title != "" {
@@ -403,6 +413,78 @@ func cmdAlways() error {
 	}, &out)
 }
 
+func cmdRun() error {
+	agent := ""
+	path := ""
+	var promptParts []string
+	args := os.Args[2:]
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "--":
+			promptParts = append(promptParts, args[i+1:]...)
+			i = len(args)
+		case a == "--agent" && i+1 < len(args):
+			i++
+			agent = args[i]
+		case strings.HasPrefix(a, "--agent="):
+			agent = strings.TrimPrefix(a, "--agent=")
+		case a == "--path" && i+1 < len(args):
+			i++
+			path = args[i]
+		case strings.HasPrefix(a, "--path="):
+			path = strings.TrimPrefix(a, "--path=")
+		default:
+			promptParts = append(promptParts, a)
+		}
+	}
+	prompt := strings.TrimSpace(strings.Join(promptParts, " "))
+	if prompt == "" {
+		return fmt.Errorf("usage: leash run [--agent NAME] [--path DIR] -- PROMPT")
+	}
+	if path == "" {
+		path, _ = os.Getwd()
+	}
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	body := map[string]any{"prompt": prompt, "path": abs}
+	if agent != "" {
+		body["agent"] = agent
+	}
+	var started server.State
+	if err := rpc("POST", "/v1/run", body, &started); err != nil {
+		return err
+	}
+	for {
+		time.Sleep(300 * time.Millisecond)
+		var st server.State
+		if err := rpc("GET", "/v1/state", nil, &st); err != nil {
+			return err
+		}
+		if st.Job == nil {
+			return fmt.Errorf("job vanished")
+		}
+		switch st.Job.Status {
+		case "done":
+			if st.Job.Result != "" {
+				fmt.Println(st.Job.Result)
+			}
+			return nil
+		case "failed":
+			msg := st.Job.Error
+			if msg == "" {
+				msg = "job failed"
+			}
+			if st.Job.Result != "" {
+				fmt.Fprintln(os.Stderr, st.Job.Result)
+			}
+			return fmt.Errorf("%s", msg)
+		}
+	}
+}
+
 func cmdACP() error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -431,92 +513,7 @@ func cmdDecide() error {
 }
 
 func cmdDemo() error {
-	if len(os.Args) > 2 && os.Args[2] == "mission" {
-		return cmdDemoMission()
-	}
-	cmd := "rm -rf ./dist"
-	if len(os.Args) > 2 {
-		cmd = strings.Join(os.Args[2:], " ")
-	}
-	cwd, _ := os.Getwd()
-	return postDemo(cwd, map[string]any{
-		"session_id":      "demo",
-		"cwd":             cwd,
-		"hook_event_name": "PreToolUse",
-		"tool_name":       "Bash",
-		"agent":           "Demo",
-		"tool_input":      map[string]string{"command": cmd},
-	}, 9*time.Minute)
-}
-
-func cmdDemoMission() error {
-	cwd, _ := os.Getwd()
-	fmt.Fprintln(os.Stderr, "demo mission: plan → act → fail → gate")
-	steps := []map[string]any{
-		{
-			"protocol": "leash", "hook_event_name": "plan", "agent": "Demo", "cwd": cwd,
-			"text": "Ship the login fix", "steps": []string{"read auth.ts", "run tests", "don't touch prod"},
-		},
-		{
-			"protocol": "leash", "hook_event_name": "thought", "agent": "Demo", "cwd": cwd,
-			"text": "checking middleware before the edit",
-		},
-		{
-			"session_id": "demo", "cwd": cwd, "hook_event_name": "PreToolUse", "tool_name": "Write",
-			"agent": "Demo", "tool_input": map[string]string{"file_path": cwd + "/auth.ts"},
-		},
-		{
-			"protocol": "leash", "hook_event_name": "post_tool", "agent": "Demo", "cwd": cwd,
-			"tool_name": "Write", "tool_input": map[string]string{"file_path": cwd + "/auth.ts"},
-			"tool_output": "ok", "duration_ms": 40,
-		},
-		{
-			"session_id": "demo", "cwd": cwd, "hook_event_name": "PreToolUse", "tool_name": "Bash",
-			"agent": "Demo", "tool_input": map[string]string{"command": "git status"},
-		},
-		{
-			"protocol": "leash", "hook_event_name": "post_tool", "agent": "Demo", "cwd": cwd,
-			"tool_name": "Read", "tool_input": map[string]string{"file_path": cwd + "/auth.ts"},
-			"tool_output": "export function auth() { return true }", "duration_ms": 12,
-		},
-		{
-			"protocol": "leash", "hook_event_name": "post_tool", "agent": "Demo", "cwd": cwd,
-			"tool_name": "Bash", "tool_input": map[string]string{"command": "npm test"},
-			"error": "FAIL  auth.test.ts\n  expected 200, got 401\nexit status 1", "duration_ms": 1420,
-		},
-	}
-	for _, body := range steps {
-		if err := postDemo(cwd, body, 8*time.Second); err != nil {
-			return err
-		}
-	}
-	fmt.Fprintln(os.Stderr, "demo: rm -rf ./dist  (waiting on you)")
-	return postDemo(cwd, map[string]any{
-		"session_id": "demo", "cwd": cwd, "hook_event_name": "PreToolUse", "tool_name": "Bash",
-		"agent": "Demo", "tool_input": map[string]string{"command": "rm -rf ./dist"},
-	}, 9*time.Minute)
-}
-
-func postDemo(cwd string, payload map[string]any, timeout time.Duration) error {
-	_ = cwd
-	body, _ := json.Marshal(payload)
-	cfg, err := config.Load()
-	if err != nil {
-		return err
-	}
-	if !server.DaemonRunning(cfg.Port) {
-		return fmt.Errorf("daemon not running — start Leash.app or `leash serve`")
-	}
-	out, code, err := server.PostHook(cfg.Port, cfg.Token, body, timeout)
-	if err != nil {
-		return err
-	}
-	if code != 200 {
-		return fmt.Errorf("http %d: %s", code, out)
-	}
-	if len(bytes.TrimSpace(out)) > 0 && !bytes.Equal(bytes.TrimSpace(out), []byte("{}")) {
-		fmt.Println(string(bytes.TrimSpace(out)))
-	}
+	fmt.Fprintln(os.Stderr, "gates are off — send a prompt with: leash run \"…\"")
 	return nil
 }
 

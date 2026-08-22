@@ -13,10 +13,12 @@ final class AppModel: ObservableObject {
     @Published var deciding = false
     @Published var selectedEventID: String?
     @Published var steerDraft = ""
+    @Published var promptDraft = ""
+    @Published var sending = false
+    @Published var folder: String?
 
     private var client = DaemonClient()
     private var timer: Timer?
-    private var lastPendingID: String?
     private var process: Process?
 
     private var started = false
@@ -43,24 +45,16 @@ final class AppModel: ObservableObject {
         do {
             let next = try await client.state()
             let prevLast = state.mission?.timeline.last?.id
-            let appeared = next.pending != nil && next.pending?.id != lastPendingID
-            let missionLive = LeashFormat.missionLive(phase: next.mission?.phase, pending: next.pending != nil)
             state = next
             daemonError = nil
+            if folder == nil || folder?.isEmpty == true, let root = next.watchRoot ?? next.folders.first, !root.isEmpty {
+                folder = root
+            }
             if selectedEventID == nil || selectedEventID == prevLast, let last = next.mission?.timeline.last?.id {
                 selectedEventID = last
             }
-            if appeared {
-                lastPendingID = next.pending?.id
-                presentApproval()
-            }
-            if missionLive {
-                MissionHUD.shared.show(model: self)
-            }
-            if next.pending == nil {
-                lastPendingID = nil
-                ApprovalHUD.shared.hide()
-            }
+            MissionHUD.shared.hide()
+            ApprovalHUD.shared.hide()
         } catch {
             state = .empty
             daemonError = error.localizedDescription
@@ -150,6 +144,7 @@ final class AppModel: ObservableObject {
         panel.allowsMultipleSelection = false
         panel.message = LeashCopy.addFolderPrompt
         guard panel.runModal() == .OK, let url = panel.url else { return }
+        folder = url.path
         Task {
             do {
                 try await client.watch(url.path)
@@ -244,7 +239,32 @@ final class AppModel: ObservableObject {
         return nil
     }
 
-    private func presentApproval() {
-        ApprovalHUD.shared.show(model: self)
+    var workFolder: String? {
+        if let folder, !folder.isEmpty { return folder }
+        if let root = state.watchRoot, !root.isEmpty { return root }
+        return state.folders.first
+    }
+
+    func send() async {
+        let prompt = promptDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !prompt.isEmpty, !sending else { return }
+        guard state.job?.running != true else { return }
+        guard let path = workFolder, !path.isEmpty else {
+            notice = LeashCopy.chooseWorkFolder
+            return
+        }
+        guard LeashFormat.dispatchAgent(state.agents) != nil else {
+            notice = LeashCopy.noCLI
+            return
+        }
+        sending = true
+        defer { sending = false }
+        do {
+            try await client.run(prompt: prompt, agent: nil, path: path)
+            promptDraft = ""
+            await refresh()
+        } catch {
+            notice = error.localizedDescription
+        }
     }
 }

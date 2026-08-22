@@ -1,6 +1,6 @@
 # Plug Leash into any agent
 
-Leash is agent-agnostic. The Mac app / `leash serve` daemon is the seatbelt. Each coding agent only needs to call it **before a tool runs**, wait, then honor allow or deny.
+Leash is agent-agnostic. The Mac app / `leash serve` daemon dispatches prompts to installed CLI agents and, if hooks are installed, auto-allows every tool call. Each coding agent only needs to call it **before a tool runs** if you still want snapshots for undo; there is no approval panel.
 
 `leash install` wires the ones we know. A home-grown agent uses the same JSON.
 

@@ -108,6 +108,24 @@ struct DaemonClient {
         try check(res)
     }
 
+    func run(prompt: String, agent: String?, path: String?) async throws {
+        var req = try authorized("POST", "/v1/run")
+        var body: [String: Any] = ["prompt": prompt]
+        if let agent, !agent.isEmpty {
+            body["agent"] = agent
+        }
+        if let path, !path.isEmpty {
+            body["path"] = path
+        }
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (_, res) = try await URLSession.shared.data(for: req)
+        let code = (res as? HTTPURLResponse)?.statusCode ?? 0
+        if code == 409 {
+            throw LeashHTTPError.conflict
+        }
+        try check(res)
+    }
+
     func unwatch(_ path: String) async throws {
         try await watch(path, remove: true)
     }
@@ -138,7 +156,19 @@ struct DaemonClient {
     private func check(_ res: URLResponse) throws {
         let code = (res as? HTTPURLResponse)?.statusCode ?? 0
         if code >= 400 {
-            throw URLError(.badServerResponse)
+            throw LeashHTTPError.status(code)
+        }
+    }
+}
+
+enum LeashHTTPError: LocalizedError {
+    case conflict
+    case status(Int)
+
+    var errorDescription: String? {
+        switch self {
+        case .conflict: return LeashCopy.alreadyRunning
+        case .status(let code): return "Request failed (\(code))"
         }
     }
 }

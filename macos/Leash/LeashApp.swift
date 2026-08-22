@@ -11,7 +11,7 @@ struct LeashApp: App {
             MenuBarView()
                 .environmentObject(app)
         } label: {
-            LeashMenuBarLabel(pending: LeashFormat.menuArmed(waiting: app.state.waitingCount, phase: app.state.mission?.phase))
+            LeashMenuBarLabel(running: app.state.job?.running == true)
         }
         .menuBarExtraStyle(.window)
     }
@@ -42,21 +42,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 
 struct LeashMenuBarLabel: View {
-    var pending: Bool
+    var running: Bool
     @State private var pulse = false
 
     var body: some View {
-        Image(pending ? "LeashMenuFilled" : "LeashMenu")
+        Image(running ? "LeashMenuFilled" : "LeashMenu")
             .renderingMode(.template)
             .interpolation(.high)
-            .opacity(pending && pulse ? LeashPaint.Opacity.pulse : 1)
+            .opacity(running && pulse ? LeashPaint.Opacity.pulse : 1)
             .onAppear {
-                pulse = pending
+                pulse = running
             }
-            .onChange(of: pending) { _, isPending in
-                pulse = isPending
+            .onChange(of: running) { _, isRunning in
+                pulse = isRunning
             }
-            .animation(pending ? LeashMotion.pulse : LeashMotion.settle, value: pulse)
-            .accessibilityLabel(pending ? LeashCopy.waitingOnYouA11y : LeashCopy.app)
+            .animation(running ? LeashMotion.pulse : LeashMotion.settle, value: pulse)
+            .accessibilityLabel(running ? LeashCopy.runningA11y : LeashCopy.app)
     }
 }
