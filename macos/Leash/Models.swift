@@ -12,6 +12,7 @@ struct LeashState: Codable, Equatable {
     var alwaysAllow: [AlwaysRule]
     var port: Int?
     var mission: MissionInfo?
+    var agents: [AgentInfo]?
 
     static let empty = LeashState(
         status: "offline",
@@ -24,7 +25,8 @@ struct LeashState: Codable, Equatable {
         lastKill: nil,
         alwaysAllow: [],
         port: nil,
-        mission: nil
+        mission: nil,
+        agents: nil
     )
 
     var folders: [String] {
@@ -123,4 +125,14 @@ struct AlwaysRule: Codable, Equatable {
 
 struct UndoResponse: Codable {
     var restored: Int
+}
+
+struct AgentInfo: Codable, Equatable, Identifiable {
+    var id: String
+    var name: String
+    var installed: Bool
+    var hooked: Bool
+    var door: String
+    var path: String?
+    var acp: String?
 }

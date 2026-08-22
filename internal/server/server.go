@@ -20,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/leashapp/leash/internal/agents"
 	"github.com/leashapp/leash/internal/burst"
 	"github.com/leashapp/leash/internal/config"
 	"github.com/leashapp/leash/internal/hookfmt"
@@ -48,6 +49,10 @@ type Server struct {
 	ready     chan struct{}
 	readyOnce sync.Once
 	mission   *mission.Log
+
+	censusMu sync.Mutex
+	census   []agents.Found
+	censusAt time.Time
 }
 
 type Pending struct {
@@ -68,12 +73,12 @@ type Pending struct {
 }
 
 type State struct {
-	Status     string     `json:"status"`
-	WatchRoot  string     `json:"watchRoot"`
-	WatchRoots []string   `json:"watchRoots"`
-	Pending    *Pending   `json:"pending,omitempty"`
-	Queue      []Pending  `json:"queue"`
-	Waiting    int        `json:"waiting"`
+	Status     string    `json:"status"`
+	WatchRoot  string    `json:"watchRoot"`
+	WatchRoots []string  `json:"watchRoots"`
+	Pending    *Pending  `json:"pending,omitempty"`
+	Queue      []Pending `json:"queue"`
+	Waiting    int       `json:"waiting"`
 	Burst      *struct {
 		ID        string    `json:"id"`
 		Started   time.Time `json:"started"`
@@ -85,6 +90,7 @@ type State struct {
 	AlwaysAllow []policy.Rule    `json:"alwaysAllow"`
 	Port        int              `json:"port"`
 	Mission     mission.Snapshot `json:"mission"`
+	Agents      []agents.Found   `json:"agents"`
 }
 
 func New(cfg config.File) *Server {
@@ -216,6 +222,7 @@ func (s *Server) Snapshot() State {
 		Queue:       []Pending{},
 		AlwaysAllow: s.Cfg.AlwaysAllow,
 		Port:        s.Cfg.Port,
+		Agents:      s.agentCensus(),
 	}
 	if len(st.WatchRoots) == 0 && st.WatchRoot != "" {
 		st.WatchRoots = []string{st.WatchRoot}
@@ -259,6 +266,17 @@ func (s *Server) Snapshot() State {
 		st.Status = "failed"
 	}
 	return st
+}
+
+func (s *Server) agentCensus() []agents.Found {
+	s.censusMu.Lock()
+	defer s.censusMu.Unlock()
+	if s.census != nil && time.Since(s.censusAt) < 3*time.Second {
+		return s.census
+	}
+	s.census = agents.Scan(agents.DefaultProbe())
+	s.censusAt = time.Now()
+	return s.census
 }
 
 func splitPending(m map[string]*Pending) (*Pending, []Pending) {

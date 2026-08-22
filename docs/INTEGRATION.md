@@ -151,3 +151,23 @@ echo '{"protocol":"leash","hook_event_name":"pre_tool","cwd":"/path/to/repo","to
 ```
 
 The native sheet should appear. Kill should print `"decision":"deny"`.
+
+## ACP (Cursor CLI, Hermes, Grok, OpenCode)
+
+Some agents have no hook file. They speak [Agent Client Protocol](https://agentclientprotocol.com) over stdio (`cursor-agent acp`, `opencode acp`, `hermes acp`, `grok agent stdio`).
+
+Point the ACP **client** (Zed, a custom host, another editor) at Leash instead of the agent:
+
+```
+leash acp -- cursor-agent acp
+leash acp cursor      # same
+leash acp opencode
+leash acp hermes
+leash acp grok
+```
+
+Leash forwards the session as-is. It only intercepts `session/request_permission`, runs the same Allow / Always / Kill policy, and answers `allow_once` / `reject_once`. There is no second composer and no new look inside the agent.
+
+If the daemon is down, permissions are allowed (fail open).
+
+`leash status` lists which agents are installed and whether hooks or ACP apply.
