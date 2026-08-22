@@ -39,8 +39,9 @@ type Burst struct {
 
 type Store struct {
 	mu     sync.Mutex
-	active *Burst
-	last   *Burst
+	active map[string]*Burst
+	done   map[string]*Burst
+	recent string
 	idle   time.Duration
 }
 
@@ -48,33 +49,67 @@ func NewStore(idle time.Duration) *Store {
 	if idle <= 0 {
 		idle = 3 * time.Minute
 	}
-	return &Store{idle: idle}
+	return &Store{
+		active: map[string]*Burst{},
+		done:   map[string]*Burst{},
+		idle:   idle,
+	}
 }
 
 func (s *Store) Active() *Burst {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.active
+	return s.active[s.recent]
 }
 
 func (s *Store) Last() *Burst {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.active != nil {
-		return s.active
+	return s.peek()
+}
+
+func (s *Store) peek() *Burst {
+	if b := s.active[s.recent]; b != nil {
+		return b
 	}
-	return s.last
+	if b := s.done[s.recent]; b != nil {
+		return b
+	}
+	var best *Burst
+	for _, b := range s.active {
+		if best == nil || b.LastTouch.After(best.LastTouch) {
+			best = b
+		}
+	}
+	if best != nil {
+		return best
+	}
+	for _, b := range s.done {
+		if best == nil || b.LastTouch.After(best.LastTouch) {
+			best = b
+		}
+	}
+	return best
 }
 
 func (s *Store) Begin(root, id string) *Burst {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.active != nil && sameRoot(s.active.Root, root) && time.Since(s.active.LastTouch) < s.idle {
-		s.active.LastTouch = time.Now()
-		return s.active
+	if s.active == nil {
+		s.active = map[string]*Burst{}
 	}
-	if s.active != nil {
-		s.last = s.active
+	k := rootKey(root)
+	if b := s.active[k]; b != nil && time.Since(b.LastTouch) < s.idle {
+		b.LastTouch = time.Now()
+		s.recent = k
+		return b
+	}
+	if b := s.active[k]; b != nil {
+		if s.done == nil {
+			s.done = map[string]*Burst{}
+		}
+		s.done[k] = b
+		delete(s.active, k)
 	}
 	now := time.Now()
 	b := &Burst{
@@ -84,25 +119,28 @@ func (s *Store) Begin(root, id string) *Burst {
 		Root:      root,
 		files:     map[string]*Origin{},
 	}
-	s.active = b
+	s.active[k] = b
+	s.recent = k
 	return b
 }
 
 func (s *Store) CloseIfIdle() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.active != nil && time.Since(s.active.LastTouch) >= s.idle {
-		s.last = s.active
-		s.active = nil
+	if s.done == nil {
+		s.done = map[string]*Burst{}
+	}
+	for k, b := range s.active {
+		if b != nil && time.Since(b.LastTouch) >= s.idle {
+			s.done[k] = b
+			delete(s.active, k)
+		}
 	}
 }
 
 func (s *Store) Undo() (int, error) {
 	s.mu.Lock()
-	b := s.active
-	if b == nil {
-		b = s.last
-	}
+	b := s.peek()
 	s.mu.Unlock()
 	if b == nil {
 		return 0, fmt.Errorf("nothing to undo")
@@ -112,10 +150,12 @@ func (s *Store) Undo() (int, error) {
 		return n, err
 	}
 	s.mu.Lock()
-	if s.active == b {
-		s.active = nil
+	k := rootKey(b.Root)
+	delete(s.active, k)
+	delete(s.done, k)
+	if s.recent == k {
+		s.recent = ""
 	}
-	s.last = nil
 	s.mu.Unlock()
 	return n, nil
 }
@@ -265,8 +305,10 @@ func (b *Burst) Files() []string {
 	return out
 }
 
-func sameRoot(a, b string) bool {
-	aa, _ := filepath.Abs(a)
-	bb, _ := filepath.Abs(b)
-	return aa == bb
+func rootKey(root string) string {
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return filepath.Clean(root)
+	}
+	return abs
 }

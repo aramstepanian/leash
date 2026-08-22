@@ -69,9 +69,41 @@ struct DaemonClient {
         return try JSONDecoder().decode(UndoResponse.self, from: data).restored
     }
 
-    func watch(_ path: String) async throws {
+    func watch(_ path: String, remove: Bool = false) async throws {
         var req = try authorized("POST", "/v1/watch")
-        req.httpBody = try JSONSerialization.data(withJSONObject: ["path": path])
+        var body: [String: Any] = ["path": path]
+        if remove {
+            body["remove"] = true
+        }
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (_, res) = try await URLSession.shared.data(for: req)
+        try check(res)
+    }
+
+    func steer(_ text: String) async throws {
+        var req = try authorized("POST", "/v1/steer")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["text": text])
+        let (_, res) = try await URLSession.shared.data(for: req)
+        try check(res)
+    }
+
+    func interrupt(_ text: String) async throws {
+        var req = try authorized("POST", "/v1/interrupt")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["text": text])
+        let (_, res) = try await URLSession.shared.data(for: req)
+        try check(res)
+    }
+
+    func retry() async throws {
+        var req = try authorized("POST", "/v1/retry")
+        req.httpBody = Data("{}".utf8)
+        let (_, res) = try await URLSession.shared.data(for: req)
+        try check(res)
+    }
+
+    func skip() async throws {
+        var req = try authorized("POST", "/v1/skip")
+        req.httpBody = Data("{}".utf8)
         let (_, res) = try await URLSession.shared.data(for: req)
         try check(res)
     }

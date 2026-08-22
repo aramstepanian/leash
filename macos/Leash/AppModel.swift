@@ -11,6 +11,8 @@ final class AppModel: ObservableObject {
     @Published var lastUndo: String?
     @Published var notice: String?
     @Published var deciding = false
+    @Published var selectedEventID: String?
+    @Published var steerDraft = ""
 
     private var client = DaemonClient()
     private var timer: Timer?
@@ -23,7 +25,7 @@ final class AppModel: ObservableObject {
         guard !started else { return }
         started = true
         Task { await bootstrap() }
-        timer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] _ in
+        timer = Timer.scheduledTimer(withTimeInterval: LeashMotion.poll, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 await self?.refresh()
             }
@@ -40,12 +42,20 @@ final class AppModel: ObservableObject {
     func refresh() async {
         do {
             let next = try await client.state()
+            let prevLast = state.mission?.timeline.last?.id
             let appeared = next.pending != nil && next.pending?.id != lastPendingID
+            let missionLive = LeashFormat.missionLive(phase: next.mission?.phase, pending: next.pending != nil)
             state = next
             daemonError = nil
+            if selectedEventID == nil || selectedEventID == prevLast, let last = next.mission?.timeline.last?.id {
+                selectedEventID = last
+            }
             if appeared {
                 lastPendingID = next.pending?.id
                 presentApproval()
+            }
+            if missionLive {
+                MissionHUD.shared.show(model: self)
             }
             if next.pending == nil {
                 lastPendingID = nil
@@ -73,7 +83,7 @@ final class AppModel: ObservableObject {
     func undo() async {
         do {
             let n = try await client.undo()
-            lastUndo = "Restored \(n) file\(n == 1 ? "" : "s")"
+            lastUndo = LeashCopy.restored(n)
             notice = lastUndo
             await refresh()
         } catch {
@@ -81,12 +91,64 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func steer() async {
+        let text = steerDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        do {
+            try await client.steer(text)
+            steerDraft = ""
+            notice = LeashCopy.steering
+            await refresh()
+        } catch {
+            daemonError = error.localizedDescription
+        }
+    }
+
+    func interrupt() async {
+        let text = steerDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .now)
+        do {
+            if state.pending != nil {
+                await decide("kill")
+            } else {
+                try await client.interrupt(text)
+                steerDraft = ""
+                await refresh()
+            }
+        } catch {
+            daemonError = error.localizedDescription
+        }
+    }
+
+    func retry() async {
+        do {
+            try await client.retry()
+            notice = LeashCopy.retryArmed
+            await refresh()
+        } catch {
+            daemonError = error.localizedDescription
+        }
+    }
+
+    func skipFail() async {
+        do {
+            try await client.skip()
+            await refresh()
+        } catch {
+            daemonError = error.localizedDescription
+        }
+    }
+
+    func openMission() {
+        MissionHUD.shared.show(model: self)
+    }
+
     func pickFolder() {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
-        panel.message = "Folder Leash should protect"
+        panel.message = LeashCopy.addFolderPrompt
         guard panel.runModal() == .OK, let url = panel.url else { return }
         Task {
             do {
@@ -100,7 +162,7 @@ final class AppModel: ObservableObject {
 
     func installHooks() async {
         guard let bin = bundledLeash() else {
-            daemonError = "leash helper not found — run make install"
+            daemonError = LeashCopy.helperMissing
             return
         }
         let proc = Process()
@@ -110,9 +172,9 @@ final class AppModel: ObservableObject {
             try proc.run()
             proc.waitUntilExit()
             if proc.terminationStatus != 0 {
-                daemonError = "install failed"
+                daemonError = LeashCopy.installFailed
             } else {
-                notice = "Hooks installed"
+                notice = LeashCopy.hooksInstalled
             }
         } catch {
             daemonError = error.localizedDescription
@@ -125,14 +187,14 @@ final class AppModel: ObservableObject {
             return
         }
         launchHelper()
-        for _ in 0 ..< 20 {
-            try? await Task.sleep(nanoseconds: 150_000_000)
+        for _ in 0 ..< LeashMotion.bootstrapTries {
+            try? await Task.sleep(nanoseconds: LeashMotion.bootstrapTickNs)
             if await client.reachable() {
                 await refresh()
                 return
             }
         }
-        daemonError = "Could not start leash serve"
+        daemonError = LeashCopy.couldNotStart
     }
 
     private func launchHelper() {

@@ -23,6 +23,7 @@ import (
 	"github.com/leashapp/leash/internal/burst"
 	"github.com/leashapp/leash/internal/config"
 	"github.com/leashapp/leash/internal/hookfmt"
+	"github.com/leashapp/leash/internal/mission"
 	"github.com/leashapp/leash/internal/policy"
 )
 
@@ -46,6 +47,7 @@ type Server struct {
 	http      *http.Server
 	ready     chan struct{}
 	readyOnce sync.Once
+	mission   *mission.Log
 }
 
 type Pending struct {
@@ -57,6 +59,8 @@ type Pending struct {
 	Reasons    []string  `json:"reasons"`
 	Pattern    string    `json:"pattern"`
 	CWD        string    `json:"cwd"`
+	Agent      string    `json:"agent,omitempty"`
+	Root       string    `json:"root,omitempty"`
 	Created    time.Time `json:"created"`
 	event      hookfmt.Event
 	assessment policy.Assessment
@@ -64,21 +68,32 @@ type Pending struct {
 }
 
 type State struct {
-	Status    string   `json:"status"`
-	WatchRoot string   `json:"watchRoot"`
-	Pending   *Pending `json:"pending,omitempty"`
-	Burst     *struct {
+	Status     string     `json:"status"`
+	WatchRoot  string     `json:"watchRoot"`
+	WatchRoots []string   `json:"watchRoots"`
+	Pending    *Pending   `json:"pending,omitempty"`
+	Queue      []Pending  `json:"queue"`
+	Waiting    int        `json:"waiting"`
+	Burst      *struct {
 		ID        string    `json:"id"`
 		Started   time.Time `json:"started"`
 		FileCount int       `json:"fileCount"`
 		Files     []string  `json:"files"`
+		Root      string    `json:"root,omitempty"`
 	} `json:"burst,omitempty"`
-	LastKill    *time.Time    `json:"lastKill,omitempty"`
-	AlwaysAllow []policy.Rule `json:"alwaysAllow"`
-	Port        int           `json:"port"`
+	LastKill    *time.Time       `json:"lastKill,omitempty"`
+	AlwaysAllow []policy.Rule    `json:"alwaysAllow"`
+	Port        int              `json:"port"`
+	Mission     mission.Snapshot `json:"mission"`
 }
 
 func New(cfg config.File) *Server {
+	if len(cfg.WatchRoots) == 0 && cfg.WatchRoot != "" {
+		cfg.WatchRoots = []string{cfg.WatchRoot}
+	}
+	if cfg.WatchRoots == nil {
+		cfg.WatchRoots = []string{}
+	}
 	return &Server{
 		Cfg:        cfg,
 		Bursts:     burst.NewStore(3 * time.Minute),
@@ -86,6 +101,7 @@ func New(cfg config.File) *Server {
 		Log:        slog.Default(),
 		pending:    map[string]*Pending{},
 		ready:      make(chan struct{}),
+		mission:    &mission.Log{},
 	}
 }
 
@@ -113,6 +129,10 @@ func (s *Server) ListenAndServe() error {
 	mux.HandleFunc("POST /v1/decision", s.auth(s.handleDecision))
 	mux.HandleFunc("POST /v1/watch", s.auth(s.handleWatch))
 	mux.HandleFunc("POST /v1/undo", s.auth(s.handleUndo))
+	mux.HandleFunc("POST /v1/steer", s.auth(s.handleSteer))
+	mux.HandleFunc("POST /v1/interrupt", s.auth(s.handleInterrupt))
+	mux.HandleFunc("POST /v1/retry", s.auth(s.handleRetry))
+	mux.HandleFunc("POST /v1/skip", s.auth(s.handleSkip))
 	srv := &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
@@ -188,11 +208,20 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 func (s *Server) Snapshot() State {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	roots := append([]string{}, s.Cfg.WatchRoots...)
 	st := State{
 		Status:      "idle",
 		WatchRoot:   s.Cfg.WatchRoot,
+		WatchRoots:  roots,
+		Queue:       []Pending{},
 		AlwaysAllow: s.Cfg.AlwaysAllow,
 		Port:        s.Cfg.Port,
+	}
+	if len(st.WatchRoots) == 0 && st.WatchRoot != "" {
+		st.WatchRoots = []string{st.WatchRoot}
+	}
+	if len(st.WatchRoots) > 0 && st.WatchRoot == "" {
+		st.WatchRoot = st.WatchRoots[0]
 	}
 	if st.AlwaysAllow == nil {
 		st.AlwaysAllow = []policy.Rule{}
@@ -201,9 +230,12 @@ func (s *Server) Snapshot() State {
 		t := s.lastKill.UTC().Truncate(time.Second)
 		st.LastKill = &t
 	}
-	if p := oldestPending(s.pending); p != nil {
-		cp := *p
+	oldest, rest := splitPending(s.pending)
+	st.Waiting = len(s.pending)
+	if oldest != nil {
+		cp := *oldest
 		st.Pending = &cp
+		st.Queue = rest
 		st.Status = "waiting"
 	}
 	if b := s.Bursts.Last(); b != nil {
@@ -212,27 +244,56 @@ func (s *Server) Snapshot() State {
 			Started   time.Time `json:"started"`
 			FileCount int       `json:"fileCount"`
 			Files     []string  `json:"files"`
-		}{ID: b.ID, Started: b.Started.UTC().Truncate(time.Second), FileCount: b.FileCount, Files: b.Files()}
+			Root      string    `json:"root,omitempty"`
+		}{ID: b.ID, Started: b.Started.UTC().Truncate(time.Second), FileCount: b.FileCount, Files: b.Files(), Root: b.Root}
 		if st.Status == "idle" {
 			st.Status = "watching"
 		}
 	}
+	waiting := st.Status == "waiting"
+	st.Mission = s.mission.Snapshot(waiting, st.Burst != nil)
+	if st.Mission.Phase == "act" && st.Status == "idle" {
+		st.Status = "watching"
+	}
+	if st.Mission.Phase == "failed" {
+		st.Status = "failed"
+	}
 	return st
 }
 
-func oldestPending(m map[string]*Pending) *Pending {
-	var oldest *Pending
+func splitPending(m map[string]*Pending) (*Pending, []Pending) {
+	var all []*Pending
 	for _, p := range m {
-		if oldest == nil || p.Created.Before(oldest.Created) {
-			oldest = p
+		all = append(all, p)
+	}
+	if len(all) == 0 {
+		return nil, []Pending{}
+	}
+	for i := 1; i < len(all); i++ {
+		j := i
+		for j > 0 && all[j].Created.Before(all[j-1].Created) {
+			all[j], all[j-1] = all[j-1], all[j]
+			j--
 		}
 	}
+	oldest := all[0]
+	rest := make([]Pending, 0, len(all)-1)
+	for _, p := range all[1:] {
+		cp := *p
+		rest = append(rest, cp)
+	}
+	return oldest, rest
+}
+
+func oldestPending(m map[string]*Pending) *Pending {
+	oldest, _ := splitPending(m)
 	return oldest
 }
 
 func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Path string `json:"path"`
+		Path   string `json:"path"`
+		Remove bool   `json:"remove"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 32<<10)).Decode(&body); err != nil {
 		http.Error(w, err.Error(), 400)
@@ -248,13 +309,34 @@ func (s *Server) handleWatch(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "watch path must be an existing directory", 400)
 		return
 	}
+	if body.Remove {
+		s.mu.Lock()
+		s.Cfg.WatchRoots = policy.RemoveRoot(s.Cfg.WatchRoots, abs)
+		if s.Cfg.WatchRoot != "" && policy.SameRoot(s.Cfg.WatchRoot, abs) {
+			s.Cfg.WatchRoot = ""
+		}
+		if len(s.Cfg.WatchRoots) > 0 {
+			s.Cfg.WatchRoot = s.Cfg.WatchRoots[0]
+		}
+		cfg := s.Cfg
+		s.mu.Unlock()
+		if err := config.Save(cfg); err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		writeJSON(w, s.Snapshot())
+		return
+	}
 	info, err := os.Stat(abs)
 	if err != nil || !info.IsDir() {
 		http.Error(w, "watch path must be an existing directory", 400)
 		return
 	}
 	s.mu.Lock()
-	s.Cfg.WatchRoot = abs
+	s.Cfg.WatchRoots = policy.AddRoot(s.Cfg.WatchRoots, abs)
+	if len(s.Cfg.WatchRoots) > 0 {
+		s.Cfg.WatchRoot = s.Cfg.WatchRoots[0]
+	}
 	cfg := s.Cfg
 	s.mu.Unlock()
 	if err := config.Save(cfg); err != nil {
@@ -270,6 +352,13 @@ func (s *Server) handleUndo(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), 400)
 		return
 	}
+	s.mission.Append(mission.Event{
+		ID:     newID(),
+		Kind:   "undo",
+		Title:  "Rewind",
+		Detail: fmt.Sprintf("restored %d files", n),
+		Result: "ok",
+	})
 	writeJSON(w, map[string]any{"restored": n})
 }
 
@@ -309,6 +398,7 @@ func (s *Server) Resolve(id string, d hookfmt.Decision) error {
 		s.Cfg.AlwaysAllow = append(s.Cfg.AlwaysAllow, policy.Rule{
 			Tool:    p.Tool,
 			Pattern: alwaysPattern(p),
+			Root:    p.Root,
 		})
 		if len(s.Cfg.AlwaysAllow) > maxAlways {
 			s.Cfg.AlwaysAllow = s.Cfg.AlwaysAllow[len(s.Cfg.AlwaysAllow)-maxAlways:]
@@ -363,26 +453,44 @@ func (s *Server) HandleHook(ctx context.Context, body []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	s.mu.Lock()
+	roots := append([]string{}, s.Cfg.WatchRoots...)
+	if s.Cfg.WatchRoot != "" {
+		roots = policy.AddRoot(roots, s.Cfg.WatchRoot)
+	}
+	always := append([]policy.Rule{}, s.Cfg.AlwaysAllow...)
+	s.mu.Unlock()
+
+	root := policy.MatchRoot(ev.CWD, roots)
+	if root == "" {
+		root = ev.CWD
+	}
+	if ev.CWD != "" && policy.ContainingRoot(ev.CWD, roots) == "" {
+		s.rememberWatch(ev.CWD)
+		root = policy.MatchRoot(ev.CWD, append(roots, ev.CWD))
+	}
+
+	if hookfmt.IsPlan(ev) {
+		s.recordPlan(ev, root)
+		return hookfmt.SilentAllow(ev), nil
+	}
+	if hookfmt.IsThought(ev) {
+		s.recordThought(ev, root)
+		return hookfmt.SilentAllow(ev), nil
+	}
+	if hookfmt.IsPost(ev) || hookfmt.IsFailure(ev) {
+		return s.handlePostEvent(ev, root), nil
+	}
 	if !hookfmt.IsPre(ev) {
 		return hookfmt.SilentAllow(ev), nil
 	}
+
 	s.Bursts.CloseIfIdle()
 
-	s.mu.Lock()
-	watch := s.Cfg.WatchRoot
-	always := append([]policy.Rule{}, s.Cfg.AlwaysAllow...)
-	s.mu.Unlock()
-	if watch == "" {
-		watch = ev.CWD
-	}
-
-	a := policy.Assess(ev.ToolName, ev.CWD, watch, ev.ToolInput, always)
+	a := policy.Assess(ev.ToolName, ev.CWD, root, ev.ToolInput, always)
 	if len(a.Detail) > 8000 {
 		a.Detail = a.Detail[:8000] + "…"
-	}
-	root := watch
-	if root == "" {
-		root = ev.CWD
 	}
 
 	if a.Mutating && root != "" {
@@ -390,38 +498,132 @@ func (s *Server) HandleHook(ctx context.Context, body []byte) ([]byte, error) {
 		b.Touch(a.Paths)
 	}
 
+	agent := hookfmt.AgentLabel(ev)
+
 	if a.Verdict == policy.Allow {
-		return hookfmt.SilentAllow(ev), nil
+		s.mission.StartLive(policyTool(ev.ToolName), a.Detail, agent, root, "running")
+		s.mission.Append(mission.Event{
+			ID:     newID(),
+			Kind:   "tool",
+			Agent:  agent,
+			Tool:   policyTool(ev.ToolName),
+			Title:  a.Title,
+			Detail: a.Detail,
+			Paths:  a.Paths,
+			Root:   root,
+			Result: "ok",
+		})
+		out := s.replyPre(ev, hookfmt.DecisionAllow, "Allowed by Leash")
+		if !bytes.Contains(out, []byte("deny")) {
+			return out, nil
+		}
+		return out, nil
 	}
 
-	if d, ok := s.recall(ev, a); ok {
+	if d, ok := s.recall(ev, a, root); ok {
 		if d == hookfmt.DecisionKill {
 			reason := "Blocked by Leash: " + strings.Join(a.Reasons, ", ")
-			return hookfmt.Encode(ev, d, reason), nil
+			s.mission.Append(mission.Event{
+				ID:     newID(),
+				Kind:   "interrupt",
+				Agent:  agent,
+				Tool:   policyTool(ev.ToolName),
+				Title:  a.Title,
+				Detail: a.Detail,
+				Root:   root,
+				Result: "deny",
+			})
+			return s.replyPre(ev, d, reason), nil
 		}
-		return hookfmt.Encode(ev, d, "Allowed by Leash"), nil
+		s.mission.StartLive(policyTool(ev.ToolName), a.Detail, agent, root, "running")
+		s.mission.Append(mission.Event{
+			ID:     newID(),
+			Kind:   "tool",
+			Agent:  agent,
+			Tool:   policyTool(ev.ToolName),
+			Title:  a.Title,
+			Detail: a.Detail,
+			Paths:  a.Paths,
+			Root:   root,
+			Result: "ok",
+		})
+		return s.replyPre(ev, d, "Allowed by Leash"), nil
 	}
 
-	dec, err := s.ask(ctx, ev, a)
+	s.mission.StartLive(policyTool(ev.ToolName), a.Detail, agent, root, "waiting")
+	s.mission.Append(mission.Event{
+		ID:     newID(),
+		Kind:   "gate",
+		Agent:  agent,
+		Tool:   policyTool(ev.ToolName),
+		Title:  a.Title,
+		Detail: a.Detail,
+		Paths:  a.Paths,
+		Root:   root,
+		Result: "waiting",
+	})
+
+	dec, err := s.ask(ctx, ev, a, root)
 	if err != nil {
 		reason := "Leash timed out"
 		if errors.Is(err, errTooManyPending) {
 			reason = "Leash is busy"
 		}
-		return hookfmt.Encode(ev, hookfmt.DecisionKill, reason), nil
+		s.mission.ClearLive()
+		return s.replyPre(ev, hookfmt.DecisionKill, reason), nil
 	}
-	s.remember(ev, a, dec)
+	s.remember(ev, a, dec, root)
 	reason := "Allowed by Leash"
 	if dec == hookfmt.DecisionKill {
 		reason = "Blocked by Leash: " + strings.Join(a.Reasons, ", ")
 		if reason == "Blocked by Leash: " {
 			reason = "Blocked by Leash"
 		}
+		s.mission.Append(mission.Event{
+			ID:     newID(),
+			Kind:   "interrupt",
+			Agent:  agent,
+			Tool:   policyTool(ev.ToolName),
+			Title:  a.Title,
+			Detail: a.Detail,
+			Root:   root,
+			Result: "deny",
+		})
+		s.mission.ClearLive()
+	} else {
+		s.mission.StartLive(policyTool(ev.ToolName), a.Detail, agent, root, "running")
+		s.mission.Append(mission.Event{
+			ID:     newID(),
+			Kind:   "tool",
+			Agent:  agent,
+			Tool:   policyTool(ev.ToolName),
+			Title:  a.Title,
+			Detail: a.Detail,
+			Paths:  a.Paths,
+			Root:   root,
+			Result: "ok",
+		})
 	}
-	return hookfmt.Encode(ev, dec, reason), nil
+	return s.replyPre(ev, dec, reason), nil
 }
 
-func (s *Server) ask(ctx context.Context, ev hookfmt.Event, a policy.Assessment) (hookfmt.Decision, error) {
+func (s *Server) rememberWatch(cwd string) {
+	s.mu.Lock()
+	before := len(s.Cfg.WatchRoots)
+	s.Cfg.WatchRoots = policy.RememberRoot(s.Cfg.WatchRoots, cwd)
+	if len(s.Cfg.WatchRoots) == before {
+		s.mu.Unlock()
+		return
+	}
+	if len(s.Cfg.WatchRoots) > 0 && s.Cfg.WatchRoot == "" {
+		s.Cfg.WatchRoot = s.Cfg.WatchRoots[0]
+	}
+	cfg := s.Cfg
+	s.mu.Unlock()
+	_ = config.Save(cfg)
+}
+
+func (s *Server) ask(ctx context.Context, ev hookfmt.Event, a policy.Assessment, root string) (hookfmt.Decision, error) {
 	if s.Auto != nil {
 		return s.Auto(a), nil
 	}
@@ -434,6 +636,8 @@ func (s *Server) ask(ctx context.Context, ev hookfmt.Event, a policy.Assessment)
 		Reasons:    a.Reasons,
 		Pattern:    a.Pattern,
 		CWD:        ev.CWD,
+		Agent:      hookfmt.AgentLabel(ev),
+		Root:       root,
 		Created:    time.Now(),
 		event:      ev,
 		assessment: a,
@@ -478,21 +682,21 @@ type recentDec struct {
 	d   hookfmt.Decision
 }
 
-func decisionKey(ev hookfmt.Event, a policy.Assessment) string {
-	return ev.CWD + "|" + a.Pattern
+func decisionKey(ev hookfmt.Event, a policy.Assessment, root string) string {
+	return root + "|" + hookfmt.AgentLabel(ev) + "|" + a.Pattern
 }
 
-func (s *Server) remember(ev hookfmt.Event, a policy.Assessment, d hookfmt.Decision) {
+func (s *Server) remember(ev hookfmt.Event, a policy.Assessment, d hookfmt.Decision, root string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.recent = append(s.recent, recentDec{key: decisionKey(ev, a), at: time.Now(), d: d})
+	s.recent = append(s.recent, recentDec{key: decisionKey(ev, a, root), at: time.Now(), d: d})
 	if len(s.recent) > 20 {
 		s.recent = s.recent[len(s.recent)-20:]
 	}
 }
 
-func (s *Server) recall(ev hookfmt.Event, a policy.Assessment) (hookfmt.Decision, bool) {
-	key := decisionKey(ev, a)
+func (s *Server) recall(ev hookfmt.Event, a policy.Assessment, root string) (hookfmt.Decision, bool) {
+	key := decisionKey(ev, a, root)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	cutoff := time.Now().Add(-3 * time.Second)

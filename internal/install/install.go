@@ -87,12 +87,24 @@ func mergeClaude(bin string, timeoutSec int) error {
 		"hooks": []any{
 			map[string]any{
 				"type":    "command",
-				"command": hookCommand(bin),
+				"command": hookCommand(bin, "Claude"),
 				"timeout": timeoutSec,
 			},
 		},
 	}
 	hooks["PreToolUse"] = upsertGroup(asSlice(hooks["PreToolUse"]), entry)
+	post := map[string]any{
+		"matcher": "*",
+		"hooks": []any{
+			map[string]any{
+				"type":    "command",
+				"command": hookCommand(bin, "Claude"),
+				"timeout": 8,
+			},
+		},
+	}
+	hooks["PostToolUse"] = upsertGroup(asSlice(hooks["PostToolUse"]), post)
+	hooks["PostToolUseFailure"] = upsertGroup(asSlice(hooks["PostToolUseFailure"]), post)
 	return writeJSON(path, root)
 }
 
@@ -107,6 +119,8 @@ func stripClaude() error {
 		return nil
 	}
 	hooks["PreToolUse"] = filterGroups(asSlice(hooks["PreToolUse"]))
+	hooks["PostToolUse"] = filterGroups(asSlice(hooks["PostToolUse"]))
+	hooks["PostToolUseFailure"] = filterGroups(asSlice(hooks["PostToolUseFailure"]))
 	return writeJSON(path, root)
 }
 
@@ -121,7 +135,7 @@ func mergeCodex(bin string, timeoutSec int) error {
 		hooks = map[string]any{}
 		root["hooks"] = hooks
 	}
-	cmd := hookCommand(bin)
+	cmd := hookCommand(bin, "Codex")
 	entry := map[string]any{
 		"matcher": "Bash",
 		"hooks": []any{
@@ -190,8 +204,12 @@ func enableCodexHooks() error {
 	return atomicfile.WriteFile(path, []byte(s+block), 0o644)
 }
 
-func hookCommand(bin string) string {
-	return strconv.Quote(bin) + " hook"
+func hookCommand(bin, agent string) string {
+	cmd := strconv.Quote(bin) + " hook"
+	if agent == "" {
+		return cmd
+	}
+	return "env LEASH_AGENT=" + agent + " " + cmd
 }
 
 func isLeashCommand(cmd string) bool {
@@ -261,11 +279,18 @@ func mergeCursor(bin string, timeoutSec int) error {
 		root["hooks"] = hooks
 	}
 	entry := map[string]any{
-		"command": hookCommand(bin),
+		"command": hookCommand(bin, "Cursor"),
 		"timeout": timeoutSec,
 	}
 	for _, ev := range []string{"preToolUse", "beforeShellExecution"} {
 		hooks[ev] = upsertCommand(asSlice(hooks[ev]), entry)
+	}
+	post := map[string]any{
+		"command": hookCommand(bin, "Cursor"),
+		"timeout": 8,
+	}
+	for _, ev := range []string{"postToolUse", "afterShellExecution", "afterFileEdit"} {
+		hooks[ev] = upsertCommand(asSlice(hooks[ev]), post)
 	}
 	return writeJSON(path, root)
 }
@@ -280,7 +305,7 @@ func stripCursor() error {
 	if hooks == nil {
 		return nil
 	}
-	for _, ev := range []string{"preToolUse", "beforeShellExecution", "beforeMCPExecution", "beforeReadFile"} {
+	for _, ev := range []string{"preToolUse", "beforeShellExecution", "beforeMCPExecution", "beforeReadFile", "postToolUse", "afterShellExecution", "afterFileEdit"} {
 		hooks[ev] = filterCommands(asSlice(hooks[ev]))
 	}
 	return writeJSON(path, root)
@@ -365,6 +390,7 @@ export const Leash = async ({ directory }) => {
       const payload = {
         protocol: "leash",
         hook_event_name: "pre_tool",
+        agent: "OpenCode",
         cwd: directory,
         tool_name: input.tool,
         tool_input: output.args || {},
@@ -380,6 +406,28 @@ export const Leash = async ({ directory }) => {
       if (isDeny(out)) {
         throw new Error(reason(out))
       }
+      const note = out && out.steer
+      if (note && output && typeof output === "object") {
+        output.message = String(note)
+      }
+    },
+    "tool.execute.after": async (input, output) => {
+      const err = (output && (output.error || output.stderr)) || ""
+      const payload = {
+        protocol: "leash",
+        hook_event_name: err ? "leash.tool_error" : "post_tool",
+        agent: "OpenCode",
+        cwd: directory,
+        tool_name: input.tool,
+        tool_input: (output && output.args) || {},
+        error: typeof err === "string" ? err : (err && err.message) || "",
+        tool_output: output && (output.output || output.result || ""),
+      }
+      spawnSync(LEASH, ["hook"], {
+        input: JSON.stringify(payload),
+        encoding: "utf8",
+        timeout: 8000,
+      })
     },
   }
 }

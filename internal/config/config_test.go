@@ -51,3 +51,22 @@ func TestAlwaysAllowCap(t *testing.T) {
 		t.Fatalf("got %d rules", len(loaded.AlwaysAllow))
 	}
 }
+
+func TestWatchRootMigratesToWatchRoots(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("LEASH_HOME", dir)
+	root := t.TempDir()
+	if err := Save(File{Port: 17332, Token: "t", WatchRoot: root}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(loaded.WatchRoots) != 1 || loaded.WatchRoots[0] != root {
+		t.Fatalf("watchRoots %+v", loaded.WatchRoots)
+	}
+	if loaded.WatchRoot != root {
+		t.Fatalf("compat watchRoot %q", loaded.WatchRoot)
+	}
+}
