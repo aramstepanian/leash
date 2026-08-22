@@ -182,6 +182,7 @@ enum LeashSymbol {
 }
 
 enum LeashCopy {
+    static let app = "Leash"
     static let danger = "Danger"
     static let secret = "Secret"
     static let outside = "Outside"
@@ -230,6 +231,10 @@ enum LeashCopy {
     static let lastBurst = "in the last burst"
     static let waitingOnYouA11y = "Leash — waiting on you"
     static let installAgents = "Cursor · Claude · Codex · OpenCode"
+    static let agents = "Agents"
+    static let noAgents = "No agents on this Mac"
+    static let hooksTag = "hooks"
+    static let acpTag = "ACP"
     static let addFolderPrompt = "Add a folder Leash should protect"
     static let helperMissing = "leash helper not found — run make install"
     static let installFailed = "install failed"
@@ -454,6 +459,26 @@ enum LeashFormat {
     static func watchSubtitle(_ folders: [String]) -> String {
         if folders.isEmpty { return LeashCopy.chooseFolders }
         return folders.map(compactPath).joined(separator: LeashCopy.dot)
+    }
+
+    static func agentLine(_ agents: [AgentInfo]?) -> String? {
+        let found = (agents ?? []).filter(\.installed)
+        if found.isEmpty { return nil }
+        return found.map { agent in
+            "\(agent.name) \(agentTag(agent))"
+        }.joined(separator: LeashCopy.dot)
+    }
+
+    static func installSubtitle(_ agents: [AgentInfo]?) -> String {
+        let found = (agents ?? []).filter(\.installed)
+        if found.isEmpty { return LeashCopy.installAgents }
+        return found.map(\.name).joined(separator: LeashCopy.dot)
+    }
+
+    static func agentTag(_ agent: AgentInfo) -> String {
+        if agent.hooked { return LeashCopy.hooksTag }
+        if agent.door == "acp" || agent.door == "both" { return LeashCopy.acpTag }
+        return "off"
     }
 
     static func undoSubtitle(_ burst: BurstInfo?) -> String {

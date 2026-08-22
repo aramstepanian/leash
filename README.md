@@ -6,7 +6,7 @@ Seatbelt for coding agents.
 
 A Mac menu bar app that is **mission control** for coding agents: a game HUD for the plan → act → review loop, with **Allow / Always / Kill** gates, a live tool inspector, and undo for the last burst of file changes.
 
-Works with **Cursor**, **OpenCode**, **Claude Code**, **Codex**, and any custom agent that can call a hook. Local only. No account. No model.
+Works with **Cursor** (app + CLI), **OpenCode**, **Claude Code**, **Codex**, **Hermes**, **Grok**, and any agent that speaks hooks or ACP. Local only. No account. No model.
 
 <p align="center">
   <img src="docs/shots/approval.png" width="432" alt="Leash approval panel for rm -rf ./dist">
@@ -35,6 +35,7 @@ Run the **Leash** target. A clip-and-strap mark appears in the menu bar.
 1. **Watch folders** — pick the repos you vibe-code in. Leash also learns a folder when an agent first runs there.
 2. Leave Leash running. It starts the local daemon for you.
 3. Use Cursor, OpenCode, `claude`, or `codex` as usual — even several at once, in several folders.
+   Point an ACP client at `leash acp cursor` (or `opencode` / `hermes` / `grok`) when the agent has no hook file.
 4. When something scary is about to run, the panel appears.
    - **Kill / interrupt** — Esc
    - **Allow** — Return
@@ -62,23 +63,28 @@ make leash
 ./bin/leash demo           # blocks until you decide
 # other terminal:
 ./bin/leash status
+./bin/leash acp cursor     # ACP permission socket (Zed, cursor-agent, …)
 ./bin/leash decide <id> kill
 ./bin/leash undo
 ```
 
-If the daemon is down, hooks **fail open** so agents keep working.
+If the daemon is down, hooks **fail open** so agents keep working. `leash acp` also allows.
 
 ## Agents
 
-| Agent | Install target |
-|---|---|
-| Cursor | `~/.cursor/hooks.json` |
-| OpenCode | `~/.config/opencode/plugins/leash.js` |
-| Claude Code | `~/.claude/settings.json` |
-| Codex | `~/.codex/hooks.json` |
-| Custom / work agent | [docs/INTEGRATION.md](docs/INTEGRATION.md) |
+Leash does not replace the agent’s UI. It finds what you already installed (`leash status`) and sits in front of the dangerous call.
 
-Home-grown agents: POST the same JSON to `http://127.0.0.1:17332/v1/hook` or spawn `leash hook`. That is the path for a private work agent without forking Leash.
+| Agent | Door | How |
+|---|---|---|
+| Cursor app | hooks | `~/.cursor/hooks.json` |
+| Cursor CLI | ACP | `leash acp -- cursor-agent acp` |
+| OpenCode | hooks + ACP | plugin, or `leash acp -- opencode acp` |
+| Claude Code | hooks | `~/.claude/settings.json` |
+| Codex | hooks | `~/.codex/hooks.json` |
+| Hermes / Grok | ACP | `leash acp hermes` / `leash acp grok` |
+| Custom / work agent | hook JSON | [docs/INTEGRATION.md](docs/INTEGRATION.md) |
+
+Home-grown agents: POST the same JSON to `http://127.0.0.1:17332/v1/hook` or spawn `leash hook`. ACP agents: put `leash acp -- <command>` in the client’s agent command. That is the path for a private work agent without forking Leash.
 
 ## What gets a prompt
 
@@ -101,6 +107,8 @@ internal/server/     localhost HTTP
 internal/install/    Cursor, Claude, Codex, OpenCode wiring
 docs/INTEGRATION.md  protocol for any other agent
 macos/Leash/         SwiftUI menu bar + approval panel
+internal/agents/     which CLIs and hook files are on this Mac
+internal/acp/        ACP permission socket (not a chat client)
 ```
 
 ## 15-second clip
