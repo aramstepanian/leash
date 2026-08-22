@@ -265,6 +265,7 @@ enum LeashCopy {
     static let running = "Running"
     static let pickAgent = "Agent"
     static let notInstalled = "not installed"
+    static let cursorNeedsCLI = "Cursor.app is installed. The headless CLI is a separate install: curl https://cursor.com/install -fsS | bash"
     static let dot = " · "
     static let reasons = "  ·  "
 
@@ -599,22 +600,26 @@ enum LeashFormat {
     static let cliIDs = ["opencode", "claude", "cursor-cli", "codex", "hermes", "grok"]
 
     static func dispatchAgent(_ agents: [AgentInfo]?, prefer: String? = nil) -> AgentInfo? {
-        let list = agents ?? []
+        let choices = dispatchChoices(agents)
         if let prefer, !prefer.isEmpty,
-           let found = list.first(where: { $0.id == prefer && $0.installed && cliIDs.contains($0.id) }) {
+           let found = choices.first(where: { $0.id == prefer && $0.installed }) {
             return found
         }
-        for id in cliIDs {
-            if let found = list.first(where: { $0.id == id && $0.installed }) {
-                return found
-            }
-        }
-        return nil
+        return choices.first(where: \.installed)
     }
 
     static func dispatchChoices(_ agents: [AgentInfo]?) -> [AgentInfo] {
         let list = agents ?? []
-        return cliIDs.compactMap { id in list.first(where: { $0.id == id }) }
+        var out = cliIDs.compactMap { id in list.first(where: { $0.id == id }) }
+        if let app = list.first(where: { $0.id == "cursor" && $0.installed }),
+           let i = out.firstIndex(where: { $0.id == "cursor-cli" }), !out[i].installed {
+            out[i].installed = true
+            out[i].name = "Cursor"
+            if out[i].path == nil || out[i].path?.isEmpty == true {
+                out[i].path = app.path
+            }
+        }
+        return out
     }
 
     static func pickerName(_ agent: AgentInfo) -> String {
@@ -638,6 +643,28 @@ enum LeashFormat {
             s = s.replacingOccurrences(of: "\n\n\n", with: "\n\n")
         }
         return s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func replyPreview(_ raw: String) -> String {
+        let text = replyBody(raw)
+        for line in text.split(whereSeparator: \.isNewline) {
+            let s = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if s.isEmpty { continue }
+            return s
+        }
+        return text
+    }
+
+    static func replyBody(_ raw: String) -> String {
+        let cleaned = plainText(raw)
+        var lines: [String] = []
+        for line in cleaned.split(separator: "\n", omittingEmptySubsequences: false) {
+            let s = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if s.hasPrefix(">") || s.hasPrefix("$") { continue }
+            if s.hasPrefix("{"), s.contains("\"type\"") { continue }
+            lines.append(String(line))
+        }
+        return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     static func dispatchTitle(offline: Bool, folder: String?, agent: AgentInfo?, job: JobInfo?) -> String {
@@ -677,11 +704,9 @@ enum LeashFormat {
                 let err = plainText(job.error ?? "")
                 return err.isEmpty ? LeashCopy.failedLive : err
             case "done":
-                let result = plainText(job.result ?? "")
-                if let line = result.split(whereSeparator: \.isNewline).first {
-                    return String(line)
-                }
-                return LeashCopy.done
+                let result = replyPreview(job.result ?? "")
+                if result.isEmpty { return LeashCopy.done }
+                return result
             default:
                 break
             }

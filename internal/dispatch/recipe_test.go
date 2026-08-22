@@ -33,6 +33,9 @@ func TestPickPrefersOpenCode(t *testing.T) {
 	if rec.ACP || len(rec.Args) < 2 || rec.Args[0] != "run" {
 		t.Fatalf("%+v", rec)
 	}
+	if !rec.JSON {
+		t.Fatalf("opencode should request json: %+v", rec)
+	}
 }
 
 func TestPickNamedAndSkipApp(t *testing.T) {
@@ -88,6 +91,51 @@ func TestStripANSI(t *testing.T) {
 	orphan := stripANSI("[0m$ [0mls -la")
 	if strings.Contains(orphan, "[0m") {
 		t.Fatalf("orphan sgr left in %q", orphan)
+	}
+}
+
+func TestPickCursorAlias(t *testing.T) {
+	home := t.TempDir()
+	bin := filepath.Join(home, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeExe(t, filepath.Join(bin, "cursor-agent"))
+	p := agents.Probe{Home: home, Path: bin}
+	got, err := Pick(p, "cursor")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "cursor-cli" {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func TestOpenCodeTextAndChrome(t *testing.T) {
+	jsonl := "{\"type\":\"text\",\"part\":{\"type\":\"text\",\"text\":\"Hello from the agent.\"}}\n"
+	if got := openCodeText(jsonl); got != "Hello from the agent." {
+		t.Fatalf("json text %q", got)
+	}
+	raw := "> build · nemotron-3-ultra-free\n$ ls -la\nHello! How can I help you today?\n"
+	got := extractReply(raw)
+	if strings.Contains(got, "build ·") || strings.Contains(got, "$ ls") {
+		t.Fatalf("chrome left in %q", got)
+	}
+	if !strings.Contains(got, "Hello!") {
+		t.Fatalf("lost reply %q", got)
+	}
+}
+
+func TestFindCursorCLILooksForAgent(t *testing.T) {
+	home := t.TempDir()
+	bin := filepath.Join(home, ".local", "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeExe(t, filepath.Join(bin, "agent"))
+	got := agents.FindCursorCLI(agents.Probe{Home: home, Path: "/nonexistent"})
+	if got == "" {
+		t.Fatal("expected agent binary")
 	}
 }
 

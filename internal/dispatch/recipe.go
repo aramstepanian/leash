@@ -15,13 +15,17 @@ type Recipe struct {
 	Command string
 	Args    []string
 	ACP     bool
+	JSON    bool
 }
 
-// Pick chooses an installed CLI agent. Cursor.app is skipped; it has no headless prompt.
+// Pick chooses an installed CLI agent. Cursor.app is not a runner; "cursor" maps to Cursor CLI.
 func Pick(p agents.Probe, want string) (agents.Found, error) {
 	list := agents.Scan(p)
 	if want != "" {
 		w := strings.ToLower(strings.TrimSpace(want))
+		if w == "cursor" {
+			w = "cursor-cli"
+		}
 		for _, f := range list {
 			if !f.Installed || f.ID == "cursor" {
 				continue
@@ -29,6 +33,9 @@ func Pick(p agents.Probe, want string) (agents.Found, error) {
 			if strings.ToLower(f.ID) == w || strings.ToLower(f.Name) == w {
 				return f, nil
 			}
+		}
+		if w == "cursor-cli" {
+			return agents.Found{}, fmt.Errorf("Cursor CLI isn’t installed — Cursor.app can’t take a headless prompt. Install with: curl https://cursor.com/install -fsS | bash")
 		}
 		return agents.Found{}, fmt.Errorf("no CLI agent named %q", want)
 	}
@@ -52,11 +59,13 @@ func For(f agents.Found, prompt string) (Recipe, error) {
 	case "claude":
 		r.Args = []string{"-p", prompt, "--output-format", "text", "--permission-mode", "bypassPermissions"}
 	case "opencode":
-		r.Args = []string{"run", prompt}
+		r.JSON = true
+		r.Args = []string{"run", "--format", "json", prompt}
 	case "codex":
 		r.Args = []string{"exec", "--full-auto", prompt}
 	case "cursor-cli":
-		r.Args = []string{"-p", prompt, "--print"}
+		r.Name = "Cursor"
+		r.Args = []string{"-p", prompt, "--print", "--output-format", "text"}
 	case "hermes":
 		r.ACP = true
 		r.Args = []string{"acp"}

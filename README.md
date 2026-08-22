@@ -6,7 +6,7 @@ Dispatch a prompt to an installed CLI agent. No agent UI, no approvals, no Missi
 
 One field. Pick a folder. Return. The agent runs in the background; status is idle / running / done / failed, and the result comes back in the menu.
 
-Works with **OpenCode**, **Claude Code**, **Cursor CLI**, **Codex**, **Hermes**, and **Grok**. Cursor.app is GUI-only, so it is skipped. Local only. No account. No model of Leash’s own.
+Works with **OpenCode**, **Claude Code**, **Cursor CLI**, **Codex**, **Hermes**, and **Grok**. Cursor.app is the editor; a headless job needs the separate Cursor CLI (`agent` / `cursor-agent`). Local only. No account. No model of Leash’s own.
 
 ## Quick start (Mac)
 
@@ -20,9 +20,9 @@ open macos/Leash.xcodeproj
 Run the **Leash** target. A clip-and-strap mark appears in the menu bar.
 
 1. Pick the project folder.
-2. Pick the agent (OpenCode, Claude, Cursor CLI, Codex, Hermes, Grok). Grey chips are not installed.
+2. Pick the agent. Grey chips are not installed. **Cursor.app** lighting up still needs the CLI: `curl https://cursor.com/install -fsS | bash`, then restart Leash.
 3. Type what the agent should do. Press Return.
-4. Wait. The mark pulses while a job is running. Done shows the result.
+4. The menu pulses while it runs. Done shows the agent’s reply.
 
 Leash starts the local daemon for you. On this Mac, OpenCode is the default pick when it is installed.
 

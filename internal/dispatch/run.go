@@ -3,6 +3,7 @@ package dispatch
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -48,7 +49,7 @@ func RunWith(ctx context.Context, job Job, p agents.Probe) (string, string, erro
 	}
 	if rec.ACP {
 		out, err := oneShotACP(ctx, rec.Command, rec.Args, root, job.Prompt)
-		return found.Name, clip(out), err
+		return found.Name, replyFrom(rec, out), err
 	}
 	out, err := runPrint(ctx, rec, root)
 	if err != nil && found.ACP != "" {
@@ -56,11 +57,11 @@ func RunWith(ctx context.Context, job Job, p agents.Probe) (string, string, erro
 		if len(args) > 1 {
 			out2, err2 := oneShotACP(ctx, rec.Command, args[1:], root, job.Prompt)
 			if err2 == nil {
-				return found.Name, clip(out2), nil
+				return found.Name, replyFrom(rec, out2), nil
 			}
 		}
 	}
-	return found.Name, clip(out), err
+	return found.Name, replyFrom(rec, out), err
 }
 
 func runPrint(ctx context.Context, rec Recipe, root string) (string, error) {
@@ -87,12 +88,81 @@ var (
 )
 
 func clip(s string) string {
-	s = stripANSI(s)
 	s = strings.TrimSpace(s)
 	if len(s) <= maxResult {
 		return s
 	}
 	return s[:maxResult] + "…"
+}
+
+func replyFrom(rec Recipe, raw string) string {
+	raw = stripANSI(raw)
+	if rec.JSON {
+		if text := openCodeText(raw); text != "" {
+			return clip(text)
+		}
+	}
+	return clip(extractReply(raw))
+}
+
+func openCodeText(raw string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var ev struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+			Part struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"part"`
+		}
+		if json.Unmarshal([]byte(line), &ev) != nil {
+			continue
+		}
+		if ev.Type != "text" && ev.Part.Type != "text" {
+			continue
+		}
+		t := strings.TrimSpace(ev.Part.Text)
+		if t == "" {
+			t = strings.TrimSpace(ev.Text)
+		}
+		if t == "" {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(t)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func extractReply(raw string) string {
+	var lines []string
+	for _, line := range strings.Split(raw, "\n") {
+		s := strings.TrimSpace(line)
+		if s == "" {
+			if len(lines) > 0 {
+				lines = append(lines, "")
+			}
+			continue
+		}
+		if strings.HasPrefix(s, ">") {
+			continue
+		}
+		if strings.HasPrefix(s, "$") {
+			continue
+		}
+		if strings.HasPrefix(s, "{") && strings.Contains(s, `"type"`) {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
 }
 
 func stripANSI(s string) string {

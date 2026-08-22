@@ -69,6 +69,9 @@ func Scan(p Probe) []Found {
 		case "cursor":
 			f.Path = cursorApp(p)
 			f.Installed = f.Path != ""
+		case "cursor-cli":
+			f.Path = FindCursorCLI(p)
+			f.Installed = f.Path != ""
 		default:
 			f.Path = FindBin(s.bin, p)
 			f.Installed = f.Path != ""
@@ -125,6 +128,7 @@ func wellKnown(name, home string) []string {
 	if home != "" {
 		out = append(out,
 			filepath.Join(home, ".local", "bin", name),
+			filepath.Join(home, ".cursor", "bin", name),
 			filepath.Join(home, "."+name, "local", name),
 			filepath.Join(home, ".claude", "local", name),
 		)
@@ -134,6 +138,60 @@ func wellKnown(name, home string) []string {
 		filepath.Join("/usr/local/bin", name),
 	)
 	return out
+}
+
+// FindCursorCLI locates the headless Cursor agent (cursor-agent or agent), including
+// installs that live next to Cursor.app rather than on PATH.
+func FindCursorCLI(p Probe) string {
+	if p.Home == "" {
+		p = DefaultProbe()
+	}
+	for _, name := range []string{"cursor-agent", "agent"} {
+		if found := FindBin(name, p); found != "" {
+			return found
+		}
+	}
+	if p.Home != "" {
+		matches, _ := filepath.Glob(filepath.Join(p.Home, ".local", "share", "cursor-agent", "versions", "*", "cursor-agent"))
+		if latest := newestExe(matches); latest != "" {
+			return latest
+		}
+		matches, _ = filepath.Glob(filepath.Join(p.Home, ".local", "share", "cursor-agent", "versions", "*", "agent"))
+		if latest := newestExe(matches); latest != "" {
+			return latest
+		}
+	}
+	app := cursorApp(p)
+	if app != "" {
+		for _, rel := range []string{
+			"Contents/Resources/app/bin/cursor-agent",
+			"Contents/Resources/app/bin/agent",
+			"Contents/Resources/cursor-agent",
+			"Contents/MacOS/cursor-agent",
+		} {
+			cand := filepath.Join(app, rel)
+			if isExe(cand) {
+				return cand
+			}
+		}
+	}
+	return ""
+}
+
+func newestExe(paths []string) string {
+	var best string
+	var bestMod int64
+	for _, p := range paths {
+		info, err := os.Stat(p)
+		if err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
+			continue
+		}
+		mod := info.ModTime().UnixNano()
+		if best == "" || mod >= bestMod {
+			best, bestMod = p, mod
+		}
+	}
+	return best
 }
 
 func cursorApp(p Probe) string {

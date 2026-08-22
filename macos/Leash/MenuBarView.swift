@@ -12,7 +12,8 @@ struct MenuBarView: View {
                 title: LeashFormat.dispatchTitle(offline: app.daemonError != nil, folder: app.workFolder, agent: agent, job: job),
                 detail: LeashFormat.dispatchDetail(offlineError: app.daemonError, folder: app.workFolder, agent: agent, job: job),
                 tint: LeashFormat.dispatchTint(offline: app.daemonError != nil, folder: app.workFolder, agent: agent, job: job),
-                filled: LeashFormat.dispatchFilled(job: job)
+                filled: LeashFormat.dispatchFilled(job: job),
+                running: job?.running == true
             )
             Hairline()
                 .padding(.top, LeashSpace.xl)
@@ -31,14 +32,14 @@ struct MenuBarView: View {
                 .padding(.horizontal, LeashSpace.md)
                 .padding(.bottom, LeashSpace.sm)
 
-            if let job, job.status == "done" || job.status == "failed" {
-                let text = LeashFormat.plainText(job.displayText)
+            if job?.running == true || app.sending {
+                LeashRunningPulse()
+                    .padding(.horizontal, LeashSpace.md)
+                    .padding(.bottom, LeashSpace.sm)
+            } else if let job, job.status == "done" || job.status == "failed" {
+                let text = LeashFormat.replyBody(job.displayText)
                 if !text.isEmpty {
-                    Text(text)
-                        .font(LeashType.caption)
-                        .foregroundStyle(job.status == "failed" ? LeashPaint.vermillion : LeashPaint.muted)
-                        .textSelection(.enabled)
-                        .lineLimit(8)
+                    LeashReplyWell(text: text, failed: job.status == "failed")
                         .padding(.horizontal, LeashSpace.md)
                         .padding(.bottom, LeashSpace.sm)
                 }
@@ -85,7 +86,7 @@ struct MenuBarView: View {
                 .buttonStyle(.plain)
                 .disabled(!choice.installed || locked)
                 .opacity(choice.installed ? 1 : LeashPaint.Opacity.disabled)
-                .help(choice.installed ? LeashFormat.pickerName(choice) : LeashCopy.notInstalled)
+                .help(choiceHelp(choice))
             }
         }
         .accessibilityLabel(LeashCopy.pickAgent)
@@ -100,5 +101,13 @@ struct MenuBarView: View {
         ) {
             app.pickFolder()
         }
+    }
+
+    private func choiceHelp(_ choice: AgentInfo) -> String {
+        if !choice.installed { return LeashCopy.notInstalled }
+        if choice.id == "cursor-cli", let path = choice.path, path.hasSuffix(".app") {
+            return LeashCopy.cursorNeedsCLI
+        }
+        return LeashFormat.pickerName(choice)
     }
 }

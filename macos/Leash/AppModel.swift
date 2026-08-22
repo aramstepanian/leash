@@ -263,6 +263,13 @@ final class AppModel: ObservableObject {
             notice = LeashCopy.noCLI
             return
         }
+        if agent.id == "cursor-cli" {
+            let bin = agent.path ?? ""
+            if bin.isEmpty || bin.hasSuffix(".app") {
+                notice = LeashCopy.cursorNeedsCLI
+                return
+            }
+        }
         sending = true
         defer { sending = false }
         do {
