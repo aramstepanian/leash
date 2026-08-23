@@ -11,14 +11,13 @@ test:
 assets:
 	swift macos/render-assets.swift
 
-# Stop the menu and the helper still bound to :17332 so the next launch
-# is this tree — make install alone never rebuilt Leash.app.
+# Stop the menu and whatever is bound to :17332. Do not pkill -f a
+# pattern that appears in this recipe — that matches make itself.
 stop:
 	-@~/.leash/bin/leash stop 2>/dev/null || true
 	-@./bin/leash stop 2>/dev/null || true
 	-@killall Leash 2>/dev/null || true
-	-@pkill -f '[.]leash/bin/leash serve' 2>/dev/null || true
-	-@pkill -f '/bin/leash serve' 2>/dev/null || true
+	-@lsof -tiTCP:17332 -sTCP:LISTEN | xargs kill 2>/dev/null || true
 
 install: leash
 	@$(MAKE) stop
