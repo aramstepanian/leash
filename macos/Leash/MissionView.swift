@@ -60,10 +60,21 @@ struct MissionView: View {
 
     private var header: some View {
         HStack(alignment: .center, spacing: LeashSpace.lg) {
-            LeashMark(
-                filled: LeashFormat.headerMarkFilled(phase: phase, waiting: app.state.waitingCount),
-                tint: MissionPhase.headerTint(phase: phase, waiting: app.state.waitingCount)
-            )
+            Group {
+                if app.connecting {
+                    LeashLoader(mode: .fasten, size: .badge, tint: MissionPhase.headerTint(phase: phase, waiting: app.state.waitingCount))
+                } else if LeashFormat.missionLive(phase: phase, pending: app.state.pending != nil) && app.state.waitingCount == 0 {
+                    LeashLoader(mode: .spin, size: .badge, tint: MissionPhase.headerTint(phase: phase, waiting: app.state.waitingCount))
+                } else if app.state.waitingCount > 0 {
+                    LeashLoader(mode: .pulse, size: .badge, tint: MissionPhase.headerTint(phase: phase, waiting: app.state.waitingCount))
+                } else {
+                    LeashMark(
+                        filled: LeashFormat.headerMarkFilled(phase: phase, waiting: app.state.waitingCount),
+                        tint: MissionPhase.headerTint(phase: phase, waiting: app.state.waitingCount)
+                    )
+                }
+            }
+            .frame(width: LeashSpace.status, height: LeashSpace.status)
             LeashKicker(text: LeashCopy.job)
             Text(mission?.title ?? LeashCopy.idle)
                 .font(LeashType.rowStrong)
@@ -91,8 +102,10 @@ struct MissionView: View {
                 LeashResultWell(burst: burst)
             } else if let live = mission?.live {
                 LeashInspector(live: live)
+            } else if app.connecting {
+                LeashIdlePanel(connecting: true, title: LeashCopy.starting, detail: LeashCopy.startingDetail, compact: true)
             } else {
-                LeashEmptyWell(text: LeashCopy.noJob)
+                LeashIdlePanel(connecting: false, title: LeashCopy.noJob, detail: LeashCopy.watchingHint, compact: true)
             }
         }
     }

@@ -9,47 +9,44 @@ let paper = NSColor(srgbRed: 0.957, green: 0.945, blue: 0.925, alpha: 1)
 let ink = NSColor(srgbRed: 0.102, green: 0.098, blue: 0.086, alpha: 1)
 
 struct Mark {
-    var circle: CGRect
+    var ring: CGRect
     var strap: CGRect
     var line: CGFloat
 }
 
-func layout(canvas: CGSize, padding: CGFloat) -> Mark {
-    let inset = min(canvas.width, canvas.height) * padding
-    let inner = CGRect(x: inset, y: inset, width: canvas.width - inset * 2, height: canvas.height - inset * 2)
-    let line = max(canvas.height * 0.10, inner.height * 0.12)
-    let gap = line * 0.50
-    let strapW = max(line * 2.2, inner.width * 0.28)
-    var diameter = min(inner.height, inner.width - gap - strapW)
-    if diameter < inner.height * 0.55 {
-        diameter = min(inner.height, inner.width * 0.62)
-    }
-    let fittedStrap = max(line * 2.0, inner.width - diameter - gap)
-    let groupW = diameter + gap + fittedStrap
-    let originX = inner.minX + max(0, (inner.width - groupW) / 2)
-    let originY = inner.minY + (inner.height - diameter) / 2
+func layout(canvas: CGSize) -> Mark {
+    let s = min(canvas.width, canvas.height)
+    let d = s * 0.72
+    let line = max(1.6, d * 0.16)
+    let strapH = max(line * 1.15, d * 0.24)
+    let strapW = d * 0.36
+    let overlap = line * 0.50
+    let groupW = d - overlap + strapW
+    let x0 = (canvas.width - groupW) / 2
+    let y0 = (canvas.height - d) / 2
     return Mark(
-        circle: CGRect(x: originX, y: originY, width: diameter, height: diameter),
+        ring: CGRect(x: x0, y: y0, width: d, height: d),
         strap: CGRect(
-            x: originX + diameter + gap,
-            y: originY + (diameter - line) / 2,
-            width: fittedStrap,
-            height: line
+            x: x0 + d - overlap,
+            y: y0 + (d - strapH) / 2,
+            width: strapW,
+            height: strapH
         ),
         line: line
     )
 }
 
-func strokeCircle(rect: CGRect, line: CGFloat, color: NSColor) {
+func strokeRing(rect: CGRect, line: CGFloat, color: NSColor) {
     let path = NSBezierPath(ovalIn: rect.insetBy(dx: line / 2, dy: line / 2))
     color.setStroke()
     path.lineWidth = line
     path.lineCapStyle = .round
+    path.lineJoinStyle = .round
     path.stroke()
 }
 
-func fillCircle(in rect: CGRect, inset: CGFloat, color: NSColor) {
-    let path = NSBezierPath(ovalIn: rect.insetBy(dx: inset, dy: inset))
+func fillCircle(_ rect: CGRect, color: NSColor) {
+    let path = NSBezierPath(ovalIn: rect)
     color.setFill()
     path.fill()
 }
@@ -60,16 +57,12 @@ func fillStrap(_ rect: CGRect, color: NSColor) {
     path.fill()
 }
 
-func drawMark(canvas: CGSize, color: NSColor, filled: Bool, padding: CGFloat, compact: Bool = false) {
-    let mark = layout(canvas: canvas, padding: padding)
-    if compact {
-        fillCircle(in: mark.circle, inset: 0, color: color)
-        fillStrap(mark.strap, color: color)
-        return
-    }
-    strokeCircle(rect: mark.circle, line: mark.line, color: color)
-    if filled {
-        fillCircle(in: mark.circle, inset: mark.line * 1.65, color: color)
+func drawMark(canvas: CGSize, color: NSColor, filled: Bool, compact: Bool = false) {
+    let mark = layout(canvas: canvas)
+    if filled || compact {
+        fillCircle(mark.ring, color: color)
+    } else {
+        strokeRing(rect: mark.ring, line: mark.line, color: color)
     }
     fillStrap(mark.strap, color: color)
 }
@@ -153,7 +146,7 @@ let icons: [MacIcon] = [
 for icon in icons {
     let pixels = icon.size * icon.scale
     let rep = makeRep(pixels: pixels, opaque: true) { canvas in
-        drawMark(canvas: canvas, color: ink, filled: true, padding: 0.22, compact: pixels <= 32)
+        drawMark(canvas: canvas, color: ink, filled: false, compact: pixels <= 32)
     }
     try writePNG(rep, to: iconDir.appendingPathComponent(icon.filename))
 }
@@ -178,7 +171,7 @@ func writeMenuSet(dir: URL, filled: Bool) throws {
     for (name, scale) in zip(names, scales) {
         let pixels = point * scale
         let rep = makeRep(pixels: pixels, opaque: false) { canvas in
-            drawMark(canvas: canvas, color: .black, filled: filled, padding: 0.18)
+            drawMark(canvas: canvas, color: .black, filled: filled)
         }
         try writePNG(rep, to: dir.appendingPathComponent(name))
     }
@@ -209,7 +202,7 @@ let shots = URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appen
 try FileManager.default.createDirectory(at: shots, withIntermediateDirectories: true)
 try writePNG(
     makeRep(pixels: 256, opaque: true) { canvas in
-        drawMark(canvas: canvas, color: ink, filled: true, padding: 0.22)
+        drawMark(canvas: canvas, color: ink, filled: false, compact: false)
     },
     to: shots.appendingPathComponent("icon.png")
 )

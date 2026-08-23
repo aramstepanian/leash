@@ -20,6 +20,7 @@
 		A20000000000000100000009 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000100000012 /* Assets.xcassets */; };
 		A20000000000000100000012 /* Tokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000100000015 /* Tokens.swift */; };
 		A20000000000000100000013 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000100000016 /* Components.swift */; };
+		A20000000000000100000014 /* Graphics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000100000017 /* Graphics.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -35,6 +36,7 @@
 		A10000000000000100000014 /* MissionHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissionHUD.swift; sourceTree = "<group>"; };
 		A10000000000000100000015 /* Tokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tokens.swift; sourceTree = "<group>"; };
 		A10000000000000100000016 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
+		A10000000000000100000017 /* Graphics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Graphics.swift; sourceTree = "<group>"; };
 		A10000000000000100000007 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A10000000000000100000008 /* Leash.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Leash.entitlements; sourceTree = "<group>"; };
 		A10000000000000100000009 /* Leash.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Leash.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -85,6 +87,7 @@
 				A10000000000000100000014 /* MissionHUD.swift */,
 				A10000000000000100000015 /* Tokens.swift */,
 				A10000000000000100000016 /* Components.swift */,
+				A10000000000000100000017 /* Graphics.swift */,
 				A10000000000000100000010 /* Theme.swift */,
 				A10000000000000100000012 /* Assets.xcassets */,
 				A10000000000000100000007 /* Info.plist */,
@@ -167,6 +170,7 @@
 				A20000000000000100000006 /* ApprovalView.swift in Sources */,
 				A20000000000000100000012 /* Tokens.swift in Sources */,
 				A20000000000000100000013 /* Components.swift in Sources */,
+				A20000000000000100000014 /* Graphics.swift in Sources */,
 				A20000000000000100000007 /* Theme.swift in Sources */,
 				A20000000000000100000008 /* ApprovalHUD.swift in Sources */,
 				A20000000000000100000010 /* MissionView.swift in Sources */,

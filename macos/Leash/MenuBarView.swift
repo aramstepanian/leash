@@ -7,10 +7,15 @@ struct MenuBarView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             LeashStatusHeader(
-                title: LeashFormat.statusTitle(waiting: app.state.waitingCount, offline: app.daemonError != nil, status: app.state.status),
-                detail: LeashFormat.statusDetail(pending: app.state.pending, error: app.daemonError, folders: app.state.folders),
-                tint: LeashFormat.statusTint(waiting: app.state.waitingCount, offline: app.daemonError != nil, status: app.state.status),
-                filled: LeashFormat.markFilled(waiting: app.state.waitingCount, status: app.state.status)
+                title: LeashFormat.statusTitle(waiting: app.state.waitingCount, offline: app.daemonError != nil, status: app.state.status, connecting: app.connecting),
+                detail: LeashFormat.statusDetail(pending: app.state.pending, error: app.daemonError, folders: app.state.folders, connecting: app.connecting),
+                tint: LeashFormat.statusTint(waiting: app.state.waitingCount, offline: app.daemonError != nil, status: app.state.status, connecting: app.connecting),
+                filled: LeashFormat.markFilled(waiting: app.state.waitingCount, status: app.state.status),
+                activity: LeashFormat.statusActivity(
+                    connecting: app.connecting,
+                    waiting: app.state.waitingCount,
+                    working: LeashFormat.missionLive(phase: app.state.mission?.phase, pending: app.state.pending != nil) && app.state.waitingCount == 0
+                )
             )
             Hairline()
                 .padding(.top, LeashSpace.xl)
@@ -25,6 +30,23 @@ struct MenuBarView: View {
                     .padding(.bottom, LeashSpace.sm)
             }
 
+            if app.connecting && app.state.allPending.isEmpty {
+                HStack(spacing: LeashSpace.lg) {
+                    LeashLoader(mode: .fasten, size: .inline, tint: LeashPaint.moss)
+                    VStack(alignment: .leading, spacing: LeashSpace.xxs) {
+                        Text(LeashCopy.starting)
+                            .font(LeashType.rowStrong)
+                            .foregroundStyle(LeashPaint.ink)
+                        Text(LeashCopy.startingDetail)
+                            .font(LeashType.caption)
+                            .foregroundStyle(LeashPaint.muted)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, LeashSpace.md)
+                .padding(.vertical, LeashSpace.md)
+            }
+
             ForEach(Array(app.state.allPending.enumerated()), id: \.element.id) { i, pending in
                 LeashPendingRow(pending: pending, queued: i > 0) {
                     ApprovalHUD.shared.show(model: app)
@@ -35,6 +57,11 @@ struct MenuBarView: View {
                 Hairline()
                     .padding(.bottom, LeashSpace.sm)
             }
+
+            LeashKicker(text: LeashCopy.job)
+                .padding(.horizontal, LeashSpace.md)
+                .padding(.top, LeashSpace.xs)
+                .padding(.bottom, LeashSpace.xxs)
 
             LeashMenuRow(title: LeashCopy.mission, subtitle: LeashFormat.missionSubtitle(phase: app.state.phase, title: app.state.mission?.title), symbol: LeashSymbol.mission) {
                 app.openMission()
@@ -80,6 +107,10 @@ struct MenuBarView: View {
                 app.pickFolder()
             }
         } else {
+            LeashKicker(text: LeashCopy.foldersKicker)
+                .padding(.horizontal, LeashSpace.md)
+                .padding(.top, LeashSpace.sm)
+                .padding(.bottom, LeashSpace.xxs)
             ForEach(folders.prefix(LeashLayout.folderCap), id: \.self) { path in
                 LeashRemovableRow(
                     title: LeashFormat.folderName(path),
@@ -99,6 +130,10 @@ struct MenuBarView: View {
     private var alwaysRows: some View {
         let rules = app.state.alwaysAllow
         if !rules.isEmpty {
+            LeashKicker(text: LeashCopy.alwaysRules)
+                .padding(.horizontal, LeashSpace.md)
+                .padding(.top, LeashSpace.sm)
+                .padding(.bottom, LeashSpace.xxs)
             ForEach(rules.prefix(LeashLayout.alwaysCap)) { rule in
                 LeashRemovableRow(
                     title: rule.pattern,
