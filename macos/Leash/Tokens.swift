@@ -29,13 +29,13 @@ enum LeashPaint {
     enum Opacity {
         static let muted: CGFloat = 0.52
         static let faint: CGFloat = 0.08
-        static let hairline: CGFloat = 0.14
+        static let hairline: CGFloat = 0.10
         static let code: CGFloat = 0.90
-        static let chipOn: CGFloat = 0.14
+        static let chipOn: CGFloat = 0.12
         static let chipOff: CGFloat = 0.05
         static let pending: CGFloat = 0.10
         static let queued: CGFloat = 0.06
-        static let statusHalo: CGFloat = 0.14
+        static let statusHalo: CGFloat = 0.10
         static let hintOnInk: CGFloat = 0.14
         static let hintOnKill: CGFloat = 0.18
         static let hintInk: CGFloat = 0.72
@@ -76,8 +76,8 @@ enum LeashSpace {
 
     static let control: CGFloat = 32
     static let action: CGFloat = 34
-    static let status: CGFloat = 28
-    static let mark: CGFloat = 14
+    static let status: CGFloat = 22
+    static let mark: CGFloat = 18
     static let icon: CGFloat = 16
     static let dot: CGFloat = 6
     static let inspectorFloor: CGFloat = 64
@@ -85,12 +85,14 @@ enum LeashSpace {
     static let emptyFloor: CGFloat = 168
 
     enum Mark {
-        static let minStroke: CGFloat = 1.4
-        static let stroke: CGFloat = 0.12
-        static let circle: CGFloat = 0.50
-        static let strap: CGFloat = 0.30
-        static let gap: CGFloat = 0.55
-        static let fillPad: CGFloat = 0.95
+        static let minStroke: CGFloat = 1.6
+        static let stroke: CGFloat = 0.16
+        static let span: CGFloat = 0.72
+        static let strap: CGFloat = 0.36
+        static let strapHeight: CGFloat = 0.24
+        static let strapLine: CGFloat = 1.15
+        static let overlap: CGFloat = 0.50
+        static let spinSweep: Double = 288
     }
 }
 
@@ -172,6 +174,10 @@ enum LeashMotion {
     static let launchShot: TimeInterval = 0.6
     static let bootstrapTries = 20
     static let bootstrapTickNs: UInt64 = 150_000_000
+    static let spinPeriod: TimeInterval = 0.9
+    static let fastenPeriod: TimeInterval = 1.35
+    static let pulsePeriod: TimeInterval = 1.05
+    static let trackPeriod: TimeInterval = 1.15
 }
 
 enum LeashSymbol {
@@ -198,6 +204,11 @@ enum LeashCopy {
     static let needsYou = "Needs you"
     static let watching = "Watching"
     static let offline = "Offline"
+    static let starting = "Starting"
+    static let startingDetail = "Waiting for the local daemon"
+    static let watchingHint = "Watching for an agent"
+    static let sending = "Sending"
+    static let foldersKicker = "Folders"
     static let plan = "Plan"
     static let act = "Act"
     static let review = "Review"
@@ -465,7 +476,8 @@ enum LeashFormat {
         URL(fileURLWithPath: path).lastPathComponent
     }
 
-    static func statusTitle(waiting: Int, offline: Bool, status: String) -> String {
+    static func statusTitle(waiting: Int, offline: Bool, status: String, connecting: Bool = false) -> String {
+        if connecting { return LeashCopy.starting }
         if waiting > 1 { return LeashCopy.needsYou(waiting) }
         if waiting == 1 { return LeashCopy.needsYou }
         if offline { return LeashCopy.offline }
@@ -477,19 +489,28 @@ enum LeashFormat {
         }
     }
 
-    static func statusTint(waiting: Int, offline: Bool, status: String) -> Color {
+    static func statusTint(waiting: Int, offline: Bool, status: String, connecting: Bool = false) -> Color {
+        if connecting { return LeashPaint.moss }
         if waiting > 0 { return LeashPaint.vermillion }
         if offline { return LeashPaint.muted }
         if DaemonStatus(status) == .watching { return LeashPaint.moss }
         return LeashPaint.muted
     }
 
-    static func statusDetail(pending: PendingApproval?, error: String?, folders: [String]) -> String {
+    static func statusDetail(pending: PendingApproval?, error: String?, folders: [String], connecting: Bool = false) -> String {
+        if connecting { return LeashCopy.startingDetail }
         if let pending { return pendingHeadline(pending) }
         if let error { return error }
         if folders.count > 1 { return LeashCopy.folders(folders.count) }
         if let root = folders.first, !root.isEmpty { return compactPath(root) }
         return LeashCopy.pickFolder
+    }
+
+    static func statusActivity(connecting: Bool, waiting: Int, working: Bool) -> LeashActivity {
+        if connecting { return .connecting }
+        if waiting > 0 { return .waiting }
+        if working { return .working }
+        return .rest
     }
 
     static func missionSubtitle(phase: String, title: String?) -> String {

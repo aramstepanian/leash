@@ -11,7 +11,15 @@ struct LeashApp: App {
             MenuBarView()
                 .environmentObject(app)
         } label: {
-            LeashMenuBarLabel(pending: LeashFormat.menuArmed(waiting: app.state.waitingCount, phase: app.state.mission?.phase))
+            LeashMenuBarLabel(
+                mode: LeashMenuMode.resolve(
+                    waiting: app.state.waitingCount,
+                    working: LeashFormat.missionLive(phase: app.state.mission?.phase, pending: app.state.pending != nil) && app.state.waitingCount == 0,
+                    watching: DaemonStatus(app.state.status) == .watching,
+                    offline: app.daemonError != nil,
+                    connecting: app.connecting
+                )
+            )
         }
         .menuBarExtraStyle(.window)
     }
@@ -38,25 +46,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         AppModel.shared.stop()
-    }
-}
-
-struct LeashMenuBarLabel: View {
-    var pending: Bool
-    @State private var pulse = false
-
-    var body: some View {
-        Image(pending ? "LeashMenuFilled" : "LeashMenu")
-            .renderingMode(.template)
-            .interpolation(.high)
-            .opacity(pending && pulse ? LeashPaint.Opacity.pulse : 1)
-            .onAppear {
-                pulse = pending
-            }
-            .onChange(of: pending) { _, isPending in
-                pulse = isPending
-            }
-            .animation(pending ? LeashMotion.pulse : LeashMotion.settle, value: pulse)
-            .accessibilityLabel(pending ? LeashCopy.waitingOnYouA11y : LeashCopy.app)
     }
 }

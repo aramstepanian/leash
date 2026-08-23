@@ -42,6 +42,11 @@ struct ApprovalView: View {
                 LeashPathRow(path: folder)
                     .padding(.top, LeashSpace.lg)
             }
+            if app.deciding {
+                LeashIndeterminate(tint: kind.color)
+                    .frame(height: 3)
+                    .padding(.top, LeashSpace.md)
+            }
             if let note = LeashFormat.moreWaiting(total: app.state.waitingCount) {
                 Text(note)
                     .font(LeashType.caption)

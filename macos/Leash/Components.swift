@@ -1,35 +1,6 @@
 import AppKit
 import SwiftUI
 
-struct LeashMark: View {
-    var filled: Bool = false
-    var tint: Color = LeashPaint.ink
-    var size: CGFloat = LeashSpace.mark
-
-    var body: some View {
-        let line = max(LeashSpace.Mark.minStroke, size * LeashSpace.Mark.stroke)
-        let circle = size * LeashSpace.Mark.circle
-        let strap = size * LeashSpace.Mark.strap
-        let gap = line * LeashSpace.Mark.gap
-        HStack(spacing: gap) {
-            ZStack {
-                Circle().strokeBorder(tint, lineWidth: line)
-                if filled {
-                    Circle()
-                        .fill(tint)
-                        .padding(line * LeashSpace.Mark.fillPad)
-                }
-            }
-            .frame(width: circle, height: circle)
-            Capsule()
-                .fill(tint)
-                .frame(width: strap, height: line)
-        }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
-    }
-}
-
 struct LeashWordmark: View {
     var body: some View {
         Text(LeashCopy.app)
@@ -114,14 +85,28 @@ struct LeashPhaseLights: View {
     var waiting: Int
 
     var body: some View {
-        HStack(spacing: LeashSpace.sm) {
+        HStack(spacing: 0) {
             ForEach(MissionPhase.lights) { light in
-                LeashChip(title: light.label, tint: light.tint, on: light.isLit(phase: phase, waiting: waiting))
+                let on = light.isLit(phase: phase, waiting: waiting)
+                Text(light.label)
+                    .font(LeashType.chip)
+                    .tracking(LeashType.Track.chip)
+                    .foregroundStyle(on ? light.tint : LeashPaint.muted)
+                    .padding(.horizontal, LeashSpace.lg)
+                    .padding(.vertical, LeashSpace.chipY)
+                    .background(on ? light.tint.opacity(LeashPaint.Opacity.chipOn) : Color.clear)
             }
             if MissionPhase(phase) == .failed {
-                LeashChip(title: MissionPhase.failed.label, tint: MissionPhase.failed.tint)
+                Text(MissionPhase.failed.label)
+                    .font(LeashType.chip)
+                    .tracking(LeashType.Track.chip)
+                    .foregroundStyle(MissionPhase.failed.tint)
+                    .padding(.horizontal, LeashSpace.lg)
+                    .padding(.vertical, LeashSpace.chipY)
+                    .background(MissionPhase.failed.tint.opacity(LeashPaint.Opacity.chipOn))
             }
         }
+        .background(LeashPaint.well, in: Capsule())
     }
 }
 
@@ -156,10 +141,6 @@ struct LeashWell<Content: View>: View {
             content()
         }
         .background(LeashPaint.well, in: RoundedRectangle(cornerRadius: LeashSpace.radiusWell, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: LeashSpace.radiusWell, style: .continuous)
-                .strokeBorder(LeashPaint.hairline, lineWidth: LeashSpace.hairline)
-        )
         .clipShape(RoundedRectangle(cornerRadius: LeashSpace.radiusWell, style: .continuous))
     }
 }
@@ -184,7 +165,7 @@ struct LeashButton: View {
             .background(action.fill, in: RoundedRectangle(cornerRadius: LeashSpace.radiusControl, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: LeashSpace.radiusControl, style: .continuous)
-                    .strokeBorder(action.bordered ? LeashPaint.hairline : .clear, lineWidth: LeashSpace.hairline)
+                    .strokeBorder(action.bordered ? LeashPaint.hairline : .clear, lineWidth: action.bordered ? LeashSpace.hairline : 0)
             )
             .foregroundStyle(action.ink)
         }
@@ -322,29 +303,36 @@ struct LeashPendingRow: View {
 struct LeashStatusBadge: View {
     var tint: Color
     var filled: Bool
+    var activity: LeashActivity = .rest
 
     var body: some View {
-        ZStack {
-            Circle()
-                .fill(tint.opacity(LeashPaint.Opacity.statusHalo))
-                .frame(width: LeashSpace.status, height: LeashSpace.status)
-            LeashMark(filled: filled, tint: tint)
+        Group {
+            switch activity {
+            case .connecting:
+                LeashLoader(mode: .fasten, size: .badge, tint: tint)
+            case .working:
+                LeashLoader(mode: .spin, size: .badge, tint: tint)
+            case .waiting:
+                LeashLoader(mode: .pulse, size: .badge, tint: tint)
+            case .rest:
+                LeashMark(filled: filled, tint: tint, size: LeashSpace.status)
+            }
         }
+        .frame(width: LeashSpace.status, height: LeashSpace.status)
     }
 }
 
 struct LeashTapeRow: View {
     var event: TimelineEvent
     var selected: Bool
+    var rail: TapeRail = .middle
     var action: () -> Void
 
     var body: some View {
         let kind = TapeKind(event.kind)
         Button(action: action) {
-            HStack(spacing: LeashSpace.md) {
-                Circle()
-                    .fill(kind.color)
-                    .frame(width: LeashSpace.dot, height: LeashSpace.dot)
+            HStack(alignment: .center, spacing: LeashSpace.md) {
+                tapeRail(kind: kind)
                 VStack(alignment: .leading, spacing: LeashSpace.lead) {
                     HStack {
                         Text(event.title)
@@ -373,6 +361,26 @@ struct LeashTapeRow: View {
         }
         .buttonStyle(.plain)
     }
+
+    private func tapeRail(kind: TapeKind) -> some View {
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(rail == .first || rail == .only ? Color.clear : LeashPaint.hairline)
+                .frame(width: LeashSpace.hairline)
+            Circle()
+                .fill(kind.color)
+                .frame(width: LeashSpace.dot, height: LeashSpace.dot)
+            Rectangle()
+                .fill(rail == .last || rail == .only ? Color.clear : LeashPaint.hairline)
+                .frame(width: LeashSpace.hairline)
+        }
+        .frame(width: LeashSpace.dot)
+        .frame(maxHeight: .infinity)
+    }
+}
+
+enum TapeRail {
+    case first, middle, last, only
 }
 
 struct LeashInspector: View {
@@ -388,6 +396,9 @@ struct LeashInspector: View {
                     Text(status.label)
                         .font(LeashType.chip)
                         .foregroundStyle(status.tint)
+                    if status == .running {
+                        LeashLoader(mode: .spin, size: .tick, tint: status.tint)
+                    }
                     Spacer()
                     if let agent = live.agent, !agent.isEmpty {
                         LeashMono(text: agent)
@@ -410,6 +421,11 @@ struct LeashInspector: View {
                         .font(LeashType.mono)
                         .foregroundStyle(LeashPaint.vermillion)
                         .lineLimit(3)
+                }
+                if status == .running {
+                    LeashWorkBars(tint: status.tint)
+                    LeashIndeterminate(tint: status.tint)
+                        .frame(height: 2)
                 }
             }
             .padding(LeashSpace.xl)
@@ -458,17 +474,11 @@ struct LeashEmptyWell: View {
 
 struct LeashCaughtUp: View {
     var body: some View {
-        VStack(spacing: LeashSpace.lg) {
-            LeashMark(filled: true, tint: LeashPaint.muted)
-            Text(LeashCopy.caughtUp)
-                .font(LeashType.empty)
-                .foregroundStyle(LeashPaint.ink)
-            Text(LeashCopy.noWaiting)
-                .font(LeashType.body)
-                .foregroundStyle(LeashPaint.muted)
-        }
-        .frame(maxWidth: .infinity, minHeight: LeashSpace.emptyFloor)
-        .padding(LeashSpace.empty)
+        LeashIdlePanel(
+            connecting: false,
+            title: LeashCopy.caughtUp,
+            detail: LeashCopy.noWaiting
+        )
     }
 }
 
@@ -581,9 +591,13 @@ struct LeashTapeList: View {
             LeashKicker(text: LeashCopy.tape)
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: LeashSpace.xxs) {
-                        ForEach(events) { event in
-                            LeashTapeRow(event: event, selected: selectedID == event.id) {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(events.enumerated()), id: \.element.id) { i, event in
+                            LeashTapeRow(
+                                event: event,
+                                selected: selectedID == event.id,
+                                rail: tapeRail(index: i, count: events.count)
+                            ) {
                                 selectedID = event.id
                             }
                             .id(event.id)
@@ -595,6 +609,13 @@ struct LeashTapeList: View {
                 }
             }
         }
+    }
+
+    private func tapeRail(index: Int, count: Int) -> TapeRail {
+        if count <= 1 { return .only }
+        if index == 0 { return .first }
+        if index == count - 1 { return .last }
+        return .middle
     }
 }
 
@@ -756,10 +777,11 @@ struct LeashStatusHeader: View {
     var detail: String
     var tint: Color
     var filled: Bool
+    var activity: LeashActivity = .rest
 
     var body: some View {
         HStack(alignment: .center, spacing: LeashSpace.lg) {
-            LeashStatusBadge(tint: tint, filled: filled)
+            LeashStatusBadge(tint: tint, filled: filled, activity: activity)
             VStack(alignment: .leading, spacing: LeashSpace.xxs) {
                 Text(title)
                     .font(LeashType.rowStrong)

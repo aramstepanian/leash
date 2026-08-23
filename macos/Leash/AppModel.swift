@@ -11,6 +11,7 @@ final class AppModel: ObservableObject {
     @Published var lastUndo: String?
     @Published var notice: String?
     @Published var deciding = false
+    @Published var connecting = true
     @Published var selectedEventID: String?
     @Published var steerDraft = ""
 
@@ -47,6 +48,7 @@ final class AppModel: ObservableObject {
             let missionLive = LeashFormat.missionLive(phase: next.mission?.phase, pending: next.pending != nil)
             state = next
             daemonError = nil
+            connecting = false
             if selectedEventID == nil || selectedEventID == prevLast, let last = next.mission?.timeline.last?.id {
                 selectedEventID = last
             }
@@ -62,6 +64,7 @@ final class AppModel: ObservableObject {
                 ApprovalHUD.shared.hide()
             }
         } catch {
+            if connecting { return }
             state = .empty
             daemonError = error.localizedDescription
         }
@@ -202,6 +205,7 @@ final class AppModel: ObservableObject {
     }
 
     private func bootstrap() async {
+        defer { connecting = false }
         if await client.reachable() {
             await refresh()
             return
