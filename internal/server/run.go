@@ -109,6 +109,18 @@ func (s *Server) execJob(ctx context.Context, job dispatch.Job, runner func(cont
 	if runner == nil {
 		runner = dispatch.Run
 	}
+	prompt, root := job.Prompt, job.Root
+	job.OnText = func(text string) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		if s.job == nil || s.job.Status != "running" {
+			return
+		}
+		if s.job.Prompt != prompt || s.job.Root != root {
+			return
+		}
+		s.job.Result = text
+	}
 	name, result, err := runner(ctx, job)
 
 	s.mu.Lock()

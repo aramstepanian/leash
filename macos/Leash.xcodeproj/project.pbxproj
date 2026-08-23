@@ -20,6 +20,17 @@
 		A20000000000000100000009 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A10000000000000100000012 /* Assets.xcassets */; };
 		A20000000000000100000012 /* Tokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000100000015 /* Tokens.swift */; };
 		A20000000000000100000013 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000100000016 /* Components.swift */; };
+		A20000000000000100000014 /* Graphics.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000100000017 /* Graphics.swift */; };
+		A20000000000000100000030 /* ThinkingOrb.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000100000030 /* ThinkingOrb.swift */; };
+		A20000000000000100000031 /* Morph.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000100000031 /* Morph.swift */; };
+		A20000000000000100000032 /* Core.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000100000032 /* Core.swift */; };
+		A20000000000000100000033 /* Orbits.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000100000033 /* Orbits.swift */; };
+		A20000000000000100000034 /* OrbSpec.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000100000034 /* OrbSpec.swift */; };
+		A20000000000000100000035 /* Web.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000100000035 /* Web.swift */; };
+		A20000000000000100000036 /* Snapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000100000036 /* Snapshot.swift */; };
+		A20000000000000100000037 /* Lattice.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000100000037 /* Lattice.swift */; };
+		A20000000000000100000038 /* Strands.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000100000038 /* Strands.swift */; };
+		A20000000000000100000039 /* Presets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000000000000100000039 /* Presets.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -35,10 +46,21 @@
 		A10000000000000100000014 /* MissionHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MissionHUD.swift; sourceTree = "<group>"; };
 		A10000000000000100000015 /* Tokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Tokens.swift; sourceTree = "<group>"; };
 		A10000000000000100000016 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
+		A10000000000000100000017 /* Graphics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Graphics.swift; sourceTree = "<group>"; };
 		A10000000000000100000007 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A10000000000000100000008 /* Leash.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Leash.entitlements; sourceTree = "<group>"; };
 		A10000000000000100000009 /* Leash.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Leash.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A10000000000000100000012 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A10000000000000100000030 /* ThinkingOrb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThinkingOrb.swift; sourceTree = "<group>"; };
+		A10000000000000100000031 /* Morph.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Morph.swift; sourceTree = "<group>"; };
+		A10000000000000100000032 /* Core.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Core.swift; sourceTree = "<group>"; };
+		A10000000000000100000033 /* Orbits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Orbits.swift; sourceTree = "<group>"; };
+		A10000000000000100000034 /* OrbSpec.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OrbSpec.swift; sourceTree = "<group>"; };
+		A10000000000000100000035 /* Web.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Web.swift; sourceTree = "<group>"; };
+		A10000000000000100000036 /* Snapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Snapshot.swift; sourceTree = "<group>"; };
+		A10000000000000100000037 /* Lattice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Lattice.swift; sourceTree = "<group>"; };
+		A10000000000000100000038 /* Strands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Strands.swift; sourceTree = "<group>"; };
+		A10000000000000100000039 /* Presets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Presets.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -67,6 +89,7 @@
 			isa = PBXGroup;
 			children = (
 				A40000000000000100000002 /* Leash */,
+				A40000000000000100000004 /* ThinkingOrbsKit */,
 				A40000000000000100000003 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -85,6 +108,7 @@
 				A10000000000000100000014 /* MissionHUD.swift */,
 				A10000000000000100000015 /* Tokens.swift */,
 				A10000000000000100000016 /* Components.swift */,
+				A10000000000000100000017 /* Graphics.swift */,
 				A10000000000000100000010 /* Theme.swift */,
 				A10000000000000100000012 /* Assets.xcassets */,
 				A10000000000000100000007 /* Info.plist */,
@@ -101,6 +125,24 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
+		A40000000000000100000004 /* ThinkingOrbsKit */ = {
+			isa = PBXGroup;
+			children = (
+				A10000000000000100000030 /* ThinkingOrb.swift */,
+				A10000000000000100000031 /* Morph.swift */,
+				A10000000000000100000032 /* Core.swift */,
+				A10000000000000100000033 /* Orbits.swift */,
+				A10000000000000100000034 /* OrbSpec.swift */,
+				A10000000000000100000035 /* Web.swift */,
+				A10000000000000100000036 /* Snapshot.swift */,
+				A10000000000000100000037 /* Lattice.swift */,
+				A10000000000000100000038 /* Strands.swift */,
+				A10000000000000100000039 /* Presets.swift */,
+			);
+			name = ThinkingOrbsKit;
+			path = Packages/ThinkingOrbsKit/Sources/ThinkingOrbsKit;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -110,6 +152,7 @@
 			buildPhases = (
 				A70000000000000100000001 /* Sources */,
 				A30000000000000100000001 /* Frameworks */,
+				A70000000000000100000002 /* Embed leash helper */,
 				A30000000000000100000002 /* Resources */,
 			);
 			buildRules = (
@@ -167,6 +210,17 @@
 				A20000000000000100000006 /* ApprovalView.swift in Sources */,
 				A20000000000000100000012 /* Tokens.swift in Sources */,
 				A20000000000000100000013 /* Components.swift in Sources */,
+				A20000000000000100000014 /* Graphics.swift in Sources */,
+				A20000000000000100000030 /* ThinkingOrb.swift in Sources */,
+				A20000000000000100000031 /* Morph.swift in Sources */,
+				A20000000000000100000032 /* Core.swift in Sources */,
+				A20000000000000100000033 /* Orbits.swift in Sources */,
+				A20000000000000100000034 /* OrbSpec.swift in Sources */,
+				A20000000000000100000035 /* Web.swift in Sources */,
+				A20000000000000100000036 /* Snapshot.swift in Sources */,
+				A20000000000000100000037 /* Lattice.swift in Sources */,
+				A20000000000000100000038 /* Strands.swift in Sources */,
+				A20000000000000100000039 /* Presets.swift in Sources */,
 				A20000000000000100000007 /* Theme.swift in Sources */,
 				A20000000000000100000008 /* ApprovalHUD.swift in Sources */,
 				A20000000000000100000010 /* MissionView.swift in Sources */,
@@ -175,6 +229,29 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		A70000000000000100000002 /* Embed leash helper */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Embed leash helper";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/$(UNLOCALIZED_RESOURCES_FOLDER_PATH)/leash",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "DEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/leash\"\nmkdir -p \"$(dirname \"$DEST\")\"\nfor src in \"${SRCROOT}/../bin/leash\" \"${HOME}/.leash/bin/leash\"; do\n  if [ -x \"$src\" ]; then\n    cp -f \"$src\" \"$DEST\"\n    chmod 755 \"$DEST\"\n    exit 0\n  fi\ndone\necho \"note: leash helper not found — run make install\" >&2\nexit 0\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
 		A90000000000000100000001 /* Debug */ = {
@@ -214,14 +291,14 @@
 				CODE_SIGN_ENTITLEMENTS = Leash/Leash.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Leash/Info.plist;
 				INFOPLIST_KEY_LSUIElement = YES;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.8.0;
+				MARKETING_VERSION = 0.9.0;
 				PRODUCT_BUNDLE_IDENTIFIER = app.leash.desktop;
 				PRODUCT_NAME = Leash;
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -236,14 +313,14 @@
 				CODE_SIGN_ENTITLEMENTS = Leash/Leash.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Leash/Info.plist;
 				INFOPLIST_KEY_LSUIElement = YES;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 0.8.0;
+				MARKETING_VERSION = 0.9.0;
 				PRODUCT_BUNDLE_IDENTIFIER = app.leash.desktop;
 				PRODUCT_NAME = Leash;
 				SWIFT_EMIT_LOC_STRINGS = YES;

@@ -16,6 +16,7 @@ import (
 	"github.com/leashapp/leash/internal/dispatch"
 	"github.com/leashapp/leash/internal/hookfmt"
 	"github.com/leashapp/leash/internal/policy"
+	"github.com/leashapp/leash/internal/version"
 )
 
 func TestSilentAllowSafe(t *testing.T) {
@@ -530,6 +531,88 @@ func TestRunJobHTTP(t *testing.T) {
 	}
 	if st.Job == nil || st.Job.Status != "done" || st.Job.Result != "all good" || st.Job.Agent != "OpenCode" {
 		t.Fatalf("done %+v", st.Job)
+	}
+}
+
+func TestRunJobStreamsText(t *testing.T) {
+	root := t.TempDir()
+	s := New(config.File{Token: "secret", WatchRoot: root, Port: 1})
+	started := make(chan struct{})
+	unblock := make(chan struct{})
+	s.RunJob = func(ctx context.Context, job dispatch.Job) (string, string, error) {
+		if job.OnText == nil {
+			t.Fatal("expected OnText")
+		}
+		job.OnText("partial hello")
+		close(started)
+		select {
+		case <-unblock:
+		case <-ctx.Done():
+			return "", "", ctx.Err()
+		}
+		return "OpenCode", "final hello", nil
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /v1/run", s.auth(s.handleRun))
+	mux.HandleFunc("GET /v1/state", s.auth(s.handleState))
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+
+	body, _ := json.Marshal(map[string]string{"prompt": "hi", "agent": "opencode"})
+	req, _ := http.NewRequest(http.MethodPost, ts.URL+"/v1/run", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer secret")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatusCode != 200 {
+		res.Body.Close()
+		t.Fatalf("status %d", res.StatusCode)
+	}
+	res.Body.Close()
+	<-started
+
+	req, _ = http.NewRequest(http.MethodGet, ts.URL+"/v1/state", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var st State
+	if err := json.NewDecoder(res.Body).Decode(&st); err != nil {
+		res.Body.Close()
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if st.Job == nil || st.Job.Status != "running" || st.Job.Result != "partial hello" {
+		t.Fatalf("live %+v", st.Job)
+	}
+	close(unblock)
+}
+
+func TestHealthVersion(t *testing.T) {
+	s := New(config.File{Token: "secret", Port: 1})
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/health", s.handleHealth)
+	ts := httptest.NewServer(mux)
+	t.Cleanup(ts.Close)
+	res, err := http.Get(ts.URL + "/v1/health")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	var body struct {
+		OK      bool   `json:"ok"`
+		Version string `json:"version"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.OK || body.Version != version.String {
+		t.Fatalf("%+v", body)
+	}
+	if s.Snapshot().Version != version.String {
+		t.Fatalf("state version %q", s.Snapshot().Version)
 	}
 }
 

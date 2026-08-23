@@ -11,7 +11,15 @@ struct LeashApp: App {
             MenuBarView()
                 .environmentObject(app)
         } label: {
-            LeashMenuBarLabel(running: app.state.job?.running == true)
+            LeashMenuBarLabel(
+                mode: LeashMenuMode.resolve(
+                    waiting: 0,
+                    working: app.state.job?.running == true || app.sending,
+                    watching: app.workFolder != nil && app.daemonError == nil,
+                    offline: app.daemonError != nil,
+                    connecting: app.connecting
+                )
+            )
         }
         .menuBarExtraStyle(.window)
     }
@@ -38,25 +46,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         AppModel.shared.stop()
-    }
-}
-
-struct LeashMenuBarLabel: View {
-    var running: Bool
-    @State private var pulse = false
-
-    var body: some View {
-        Image(running ? "LeashMenuFilled" : "LeashMenu")
-            .renderingMode(.template)
-            .interpolation(.high)
-            .opacity(running && pulse ? LeashPaint.Opacity.pulse : 1)
-            .onAppear {
-                pulse = running
-            }
-            .onChange(of: running) { _, isRunning in
-                pulse = isRunning
-            }
-            .animation(running ? LeashMotion.pulse : LeashMotion.settle, value: pulse)
-            .accessibilityLabel(running ? LeashCopy.runningA11y : LeashCopy.app)
     }
 }

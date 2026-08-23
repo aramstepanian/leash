@@ -29,13 +29,13 @@ enum LeashPaint {
     enum Opacity {
         static let muted: CGFloat = 0.52
         static let faint: CGFloat = 0.08
-        static let hairline: CGFloat = 0.14
+        static let hairline: CGFloat = 0.10
         static let code: CGFloat = 0.90
-        static let chipOn: CGFloat = 0.14
+        static let chipOn: CGFloat = 0.12
         static let chipOff: CGFloat = 0.05
         static let pending: CGFloat = 0.10
         static let queued: CGFloat = 0.06
-        static let statusHalo: CGFloat = 0.14
+        static let statusHalo: CGFloat = 0.10
         static let hintOnInk: CGFloat = 0.14
         static let hintOnKill: CGFloat = 0.18
         static let hintInk: CGFloat = 0.72
@@ -76,8 +76,8 @@ enum LeashSpace {
 
     static let control: CGFloat = 32
     static let action: CGFloat = 34
-    static let status: CGFloat = 28
-    static let mark: CGFloat = 14
+    static let status: CGFloat = 22
+    static let mark: CGFloat = 18
     static let icon: CGFloat = 16
     static let dot: CGFloat = 6
     static let inspectorFloor: CGFloat = 64
@@ -85,17 +85,19 @@ enum LeashSpace {
     static let emptyFloor: CGFloat = 168
 
     enum Mark {
-        static let minStroke: CGFloat = 1.4
-        static let stroke: CGFloat = 0.12
-        static let circle: CGFloat = 0.50
-        static let strap: CGFloat = 0.30
-        static let gap: CGFloat = 0.55
-        static let fillPad: CGFloat = 0.95
+        static let minStroke: CGFloat = 1.6
+        static let stroke: CGFloat = 0.16
+        static let span: CGFloat = 0.72
+        static let strap: CGFloat = 0.36
+        static let strapHeight: CGFloat = 0.24
+        static let strapLine: CGFloat = 1.15
+        static let overlap: CGFloat = 0.50
+        static let spinSweep: Double = 288
     }
 }
 
 enum LeashLayout {
-    static let menuWidth: CGFloat = 300
+    static let menuWidth: CGFloat = 320
     static let approvalWidth: CGFloat = 432
     static let approvalFloor: CGFloat = 220
     static let approvalSeedHeight: CGFloat = 240
@@ -172,6 +174,10 @@ enum LeashMotion {
     static let launchShot: TimeInterval = 0.6
     static let bootstrapTries = 20
     static let bootstrapTickNs: UInt64 = 150_000_000
+    static let spinPeriod: TimeInterval = 0.9
+    static let fastenPeriod: TimeInterval = 1.35
+    static let pulsePeriod: TimeInterval = 1.05
+    static let trackPeriod: TimeInterval = 1.15
 }
 
 enum LeashSymbol {
@@ -187,6 +193,9 @@ enum LeashSymbol {
 
 enum LeashCopy {
     static let app = "Leash"
+    static let build = "0.9.0"
+    static let buildMark = "0.9"
+    static let oldHelper = "Old helper — quit Leash and run make app"
     static let danger = "Danger"
     static let secret = "Secret"
     static let outside = "Outside"
@@ -204,6 +213,11 @@ enum LeashCopy {
     static let fail = "Fail"
     static let tape = "Tape"
     static let working = "Working"
+    static let workingDots = "Working…"
+    static let starting = "Starting"
+    static let startingDots = "Starting…"
+    static let startingDetail = "Waiting for the local daemon"
+    static let readyDots = "Ready"
     static let done = "Done"
     static let failedLive = "Failed"
     static let steerPrompt = "Steer the agent…"
@@ -259,10 +273,17 @@ enum LeashCopy {
     static let unwatched = "Stopped watching"
     static let readyRewind = "Ready to rewind"
     static let promptPlaceholder = "What should the agent do?"
+    static let promptKicker = "Prompt"
+    static let folderKicker = "Folder"
+    static let replyKicker = "Reply"
+    static let readyHint = "Type a prompt and press Return"
     static let pickWorkFolder = "Pick a folder"
     static let chooseWorkFolder = "Choose the project folder"
     static let alreadyRunning = "Already running"
     static let running = "Running"
+    static let pickAgent = "Agent"
+    static let notInstalled = "not installed"
+    static let cursorNeedsCLI = "Cursor.app is installed. The headless CLI is a separate install: curl https://cursor.com/install -fsS | bash"
     static let dot = " · "
     static let reasons = "  ·  "
 
@@ -596,31 +617,109 @@ enum LeashFormat {
 
     static let cliIDs = ["opencode", "claude", "cursor-cli", "codex", "hermes", "grok"]
 
-    static func dispatchAgent(_ agents: [AgentInfo]?) -> AgentInfo? {
-        let list = agents ?? []
-        for id in cliIDs {
-            if let found = list.first(where: { $0.id == id && $0.installed }) {
-                return found
-            }
+    static func dispatchAgent(_ agents: [AgentInfo]?, prefer: String? = nil) -> AgentInfo? {
+        let choices = dispatchChoices(agents)
+        if let prefer, !prefer.isEmpty,
+           let found = choices.first(where: { $0.id == prefer && $0.installed }) {
+            return found
         }
-        return nil
+        return choices.first(where: \.installed)
     }
 
-    static func dispatchTitle(offline: Bool, folder: String?, agent: AgentInfo?, job: JobInfo?) -> String {
+    static func dispatchChoices(_ agents: [AgentInfo]?) -> [AgentInfo] {
+        let list = agents ?? []
+        return cliIDs.map { id in
+            var row = list.first(where: { $0.id == id }) ?? placeholderCLI(id)
+            if id == "cursor-cli" {
+                row.name = "Cursor"
+                if !row.installed, let app = list.first(where: { $0.id == "cursor" && $0.installed }) {
+                    row.installed = true
+                    if row.path == nil || row.path?.isEmpty == true {
+                        row.path = app.path
+                    }
+                }
+            }
+            return row
+        }
+    }
+
+    static func placeholderCLI(_ id: String) -> AgentInfo {
+        AgentInfo(id: id, name: pickerLabel(id), installed: false, hooked: false, door: "acp")
+    }
+
+    static func pickerLabel(_ id: String) -> String {
+        switch id {
+        case "opencode": return "OpenCode"
+        case "claude": return "Claude"
+        case "cursor-cli": return "Cursor"
+        case "codex": return "Codex"
+        case "hermes": return "Hermes"
+        case "grok": return "Grok"
+        default: return id
+        }
+    }
+
+    static func pickerName(_ agent: AgentInfo) -> String {
+        pickerLabel(agent.id)
+    }
+
+    static func plainText(_ raw: String) -> String {
+        var s = raw.replacingOccurrences(of: "\r", with: "")
+        let ns = s as NSString
+        let full = NSRange(location: 0, length: ns.length)
+        if let csi = try? NSRegularExpression(pattern: "\u{001B}\\[[0-9;?=]*[ -/]*[@-~]") {
+            s = csi.stringByReplacingMatches(in: s, range: full, withTemplate: "")
+        }
+        let ns2 = s as NSString
+        if let orphan = try? NSRegularExpression(pattern: "\\[[0-9;]{1,12}m") {
+            s = orphan.stringByReplacingMatches(in: s, range: NSRange(location: 0, length: ns2.length), withTemplate: "")
+        }
+        s = s.replacingOccurrences(of: "\u{001B}", with: "")
+        while s.contains("\n\n\n") {
+            s = s.replacingOccurrences(of: "\n\n\n", with: "\n\n")
+        }
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func replyPreview(_ raw: String) -> String {
+        let text = replyBody(raw)
+        for line in text.split(whereSeparator: \.isNewline) {
+            let s = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if s.isEmpty { continue }
+            return s
+        }
+        return text
+    }
+
+    static func replyBody(_ raw: String) -> String {
+        let cleaned = plainText(raw)
+        var lines: [String] = []
+        for line in cleaned.split(separator: "\n", omittingEmptySubsequences: false) {
+            let s = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if isChromeLine(s) { continue }
+            lines.append(String(line))
+        }
+        return lines.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func isChromeLine(_ s: String) -> Bool {
+        if s.isEmpty { return false }
+        if s == "{" || s == "}" || s == "[" || s == "]" { return true }
+        if s.hasPrefix(">") || s.hasPrefix("$") { return true }
+        if s.hasPrefix("{"), s.contains("\"type\"") { return true }
+        return false
+    }
+
+    static func dispatchTitle(offline: Bool, folder: String?, agent: AgentInfo?, job: JobInfo?, connecting: Bool = false) -> String {
+        if connecting { return LeashCopy.starting }
         if offline { return LeashCopy.offline }
         if folder == nil || folder?.isEmpty == true { return LeashCopy.pickWorkFolder }
         if agent == nil { return LeashCopy.noCLI }
         if let job {
             switch job.status {
             case "running":
-                if let name = job.agent, !name.isEmpty {
-                    return LeashCopy.running + LeashCopy.dot + name
-                }
-                return LeashCopy.running
+                return LeashCopy.working
             case "done":
-                if let name = job.agent, !name.isEmpty {
-                    return LeashCopy.done + LeashCopy.dot + name
-                }
                 return LeashCopy.done
             case "failed":
                 return LeashCopy.failedLive
@@ -628,10 +727,11 @@ enum LeashFormat {
                 break
             }
         }
-        return LeashCopy.idle
+        return LeashCopy.readyDots
     }
 
-    static func dispatchDetail(offlineError: String?, folder: String?, agent: AgentInfo?, job: JobInfo?) -> String {
+    static func dispatchDetail(offlineError: String?, folder: String?, agent: AgentInfo?, job: JobInfo?, connecting: Bool = false) -> String {
+        if connecting { return LeashCopy.startingDetail }
         if let offlineError, !offlineError.isEmpty { return offlineError }
         if folder == nil || folder?.isEmpty == true { return LeashCopy.chooseWorkFolder }
         if agent == nil { return LeashCopy.noCLI }
@@ -640,19 +740,15 @@ enum LeashFormat {
             case "running":
                 return job.prompt
             case "failed":
-                let err = job.error?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let err = plainText(job.error ?? "")
                 return err.isEmpty ? LeashCopy.failedLive : err
             case "done":
-                let result = job.result?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                if let line = result.split(whereSeparator: \.isNewline).first {
-                    return String(line)
-                }
-                return LeashCopy.done
+                return job.prompt
             default:
                 break
             }
         }
-        return compactPath(folder ?? "")
+        return LeashCopy.readyHint
     }
 
     static func dispatchTint(offline: Bool, folder: String?, agent: AgentInfo?, job: JobInfo?) -> Color {

@@ -20,10 +20,10 @@ import (
 	"github.com/leashapp/leash/internal/config"
 	"github.com/leashapp/leash/internal/install"
 	"github.com/leashapp/leash/internal/server"
+	"github.com/leashapp/leash/internal/version"
 )
 
 const (
-	version     = "0.8.0"
 	maxHookBody = 1 << 20
 )
 
@@ -66,8 +66,10 @@ func main() {
 		err = cmdAlways()
 	case "acp":
 		err = cmdACP()
+	case "stop", "quit":
+		err = cmdStop()
 	case "version", "-v", "--version":
-		fmt.Println(version)
+		fmt.Println(version.String)
 		return
 	case "help", "-h", "--help":
 		usage()
@@ -86,6 +88,7 @@ func usage() {
 	fmt.Fprint(os.Stderr, `Leash — send a prompt to an installed CLI agent
 
   leash serve              Start the local daemon (127.0.0.1)
+  leash stop               Stop the local daemon
   leash run [--agent NAME] [--path DIR] -- PROMPT
   leash hook               Called by any hooked agent (reads stdin JSON)
   leash install            Wire Cursor, Claude Code, Codex, OpenCode
@@ -97,6 +100,25 @@ func usage() {
   leash acp [--] <agent>   ACP stdio in front of an agent (auto-allow)
   leash version
 `)
+}
+
+func cmdStop() error {
+	cfg, err := config.Load()
+	if err != nil || cfg.Token == "" {
+		return nil
+	}
+	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://127.0.0.1:%d/v1/shutdown", cfg.Port), nil)
+	if err != nil {
+		return nil
+	}
+	req.Header.Set("Authorization", "Bearer "+cfg.Token)
+	client := &http.Client{Timeout: 2 * time.Second}
+	res, err := client.Do(req)
+	if err != nil {
+		return nil
+	}
+	res.Body.Close()
+	return nil
 }
 
 func cmdServe() error {
@@ -187,7 +209,7 @@ func cmdInstall() error {
 	fmt.Println("  Claude Code  ~/.claude/settings.json")
 	fmt.Println("  Codex        ~/.codex/hooks.json")
 	fmt.Println("  OpenCode     ~/.config/opencode/plugins/leash.js")
-	fmt.Println("then: leash serve   (or open Leash.app)")
+	fmt.Println("then: make app     (rebuilds the menu — make install is not Leash.app)")
 	fmt.Println("ACP agents (no hook file): leash acp cursor|opencode|hermes|grok")
 	printCensus(agents.Scan(agents.DefaultProbe()))
 	fmt.Println("custom agent: see docs/INTEGRATION.md")
@@ -269,7 +291,7 @@ func cmdStatus() error {
 		}
 		return err
 	}
-	fmt.Printf("daemon: on  :%d  %s\n", st.Port, st.Status)
+	fmt.Printf("daemon: on  :%d  %s  %s\n", st.Port, st.Status, st.Version)
 	if len(st.Agents) > 0 {
 		printCensus(st.Agents)
 	}

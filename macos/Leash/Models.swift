@@ -14,6 +14,7 @@ struct LeashState: Codable, Equatable {
     var mission: MissionInfo?
     var agents: [AgentInfo]?
     var job: JobInfo?
+    var version: String?
 
     static let empty = LeashState(
         status: "offline",
@@ -28,7 +29,8 @@ struct LeashState: Codable, Equatable {
         port: nil,
         mission: nil,
         agents: nil,
-        job: nil
+        job: nil,
+        version: nil
     )
 
     var folders: [String] {

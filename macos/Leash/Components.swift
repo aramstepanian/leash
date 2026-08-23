@@ -1,38 +1,9 @@
 import AppKit
 import SwiftUI
 
-struct LeashMark: View {
-    var filled: Bool = false
-    var tint: Color = LeashPaint.ink
-    var size: CGFloat = LeashSpace.mark
-
-    var body: some View {
-        let line = max(LeashSpace.Mark.minStroke, size * LeashSpace.Mark.stroke)
-        let circle = size * LeashSpace.Mark.circle
-        let strap = size * LeashSpace.Mark.strap
-        let gap = line * LeashSpace.Mark.gap
-        HStack(spacing: gap) {
-            ZStack {
-                Circle().strokeBorder(tint, lineWidth: line)
-                if filled {
-                    Circle()
-                        .fill(tint)
-                        .padding(line * LeashSpace.Mark.fillPad)
-                }
-            }
-            .frame(width: circle, height: circle)
-            Capsule()
-                .fill(tint)
-                .frame(width: strap, height: line)
-        }
-        .frame(width: size, height: size)
-        .accessibilityHidden(true)
-    }
-}
-
 struct LeashWordmark: View {
     var body: some View {
-        Text(LeashCopy.app)
+        Text("\(LeashCopy.app)  \(LeashCopy.buildMark)")
             .font(LeashType.kicker)
             .tracking(LeashType.Track.wordmark)
             .textCase(.uppercase)
@@ -156,10 +127,6 @@ struct LeashWell<Content: View>: View {
             content()
         }
         .background(LeashPaint.well, in: RoundedRectangle(cornerRadius: LeashSpace.radiusWell, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: LeashSpace.radiusWell, style: .continuous)
-                .strokeBorder(LeashPaint.hairline, lineWidth: LeashSpace.hairline)
-        )
         .clipShape(RoundedRectangle(cornerRadius: LeashSpace.radiusWell, style: .continuous))
     }
 }
@@ -322,14 +289,22 @@ struct LeashPendingRow: View {
 struct LeashStatusBadge: View {
     var tint: Color
     var filled: Bool
+    var activity: LeashActivity = .rest
 
     var body: some View {
-        ZStack {
-            Circle()
-                .fill(tint.opacity(LeashPaint.Opacity.statusHalo))
-                .frame(width: LeashSpace.status, height: LeashSpace.status)
-            LeashMark(filled: filled, tint: tint)
+        Group {
+            switch activity {
+            case .connecting:
+                ThinkingOrb(state: .connecting, size: .px20)
+            case .working:
+                ThinkingOrb(state: .working, size: .px20)
+            case .waiting:
+                ThinkingOrb(state: .listening, size: .px20)
+            case .rest:
+                LeashMark(filled: filled, tint: tint, size: LeashSpace.status)
+            }
         }
+        .frame(width: LeashSpace.status, height: LeashSpace.status)
     }
 }
 
@@ -756,10 +731,15 @@ struct LeashStatusHeader: View {
     var detail: String
     var tint: Color
     var filled: Bool
+    var activity: LeashActivity = .rest
 
     var body: some View {
         HStack(alignment: .center, spacing: LeashSpace.lg) {
-            LeashStatusBadge(tint: tint, filled: filled)
+            LeashStatusBadge(
+                tint: tint,
+                filled: filled,
+                activity: activity
+            )
             VStack(alignment: .leading, spacing: LeashSpace.xxs) {
                 Text(title)
                     .font(LeashType.rowStrong)
@@ -776,5 +756,29 @@ struct LeashStatusHeader: View {
         .padding(.horizontal, LeashSpace.sm)
         .padding(.top, LeashSpace.xs)
         .padding(.bottom, LeashSpace.xxs)
+    }
+}
+
+struct LeashReplyWell: View {
+    var text: String
+    var failed: Bool = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: LeashSpace.md) {
+            ScrollView {
+                Text(text)
+                    .font(LeashType.body)
+                    .foregroundStyle(failed ? LeashPaint.vermillion : LeashPaint.ink)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(maxHeight: LeashSpace.commandCeiling)
+            if failed {
+                LeashIndeterminate(tint: LeashPaint.vermillion)
+                    .frame(height: 2)
+            }
+        }
+        .padding(LeashSpace.xl)
+        .background(LeashPaint.well, in: RoundedRectangle(cornerRadius: LeashSpace.radiusWell, style: .continuous))
     }
 }

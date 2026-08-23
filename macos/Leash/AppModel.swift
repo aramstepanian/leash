@@ -5,6 +5,7 @@ import Foundation
 @MainActor
 final class AppModel: ObservableObject {
     static let shared = AppModel()
+    private static let agentKey = "leash.selectedAgent"
 
     @Published var state: LeashState = .empty
     @Published var daemonError: String?
@@ -15,7 +16,9 @@ final class AppModel: ObservableObject {
     @Published var steerDraft = ""
     @Published var promptDraft = ""
     @Published var sending = false
+    @Published var connecting = true
     @Published var folder: String?
+    @Published var selectedAgentID: String = UserDefaults.standard.string(forKey: AppModel.agentKey) ?? ""
 
     private var client = DaemonClient()
     private var timer: Timer?
@@ -47,15 +50,26 @@ final class AppModel: ObservableObject {
             let prevLast = state.mission?.timeline.last?.id
             state = next
             daemonError = nil
+            connecting = false
             if folder == nil || folder?.isEmpty == true, let root = next.watchRoot ?? next.folders.first, !root.isEmpty {
                 folder = root
+            }
+            if LeashFormat.dispatchAgent(next.agents, prefer: selectedAgentID) == nil,
+               let fallback = LeashFormat.dispatchAgent(next.agents) {
+                selectAgent(fallback.id)
             }
             if selectedEventID == nil || selectedEventID == prevLast, let last = next.mission?.timeline.last?.id {
                 selectedEventID = last
             }
             MissionHUD.shared.hide()
             ApprovalHUD.shared.hide()
+            if next.version != LeashCopy.build {
+                notice = LeashCopy.oldHelper
+            } else if notice == LeashCopy.oldHelper {
+                notice = nil
+            }
         } catch {
+            if connecting { return }
             state = .empty
             daemonError = error.localizedDescription
         }
@@ -197,9 +211,15 @@ final class AppModel: ObservableObject {
     }
 
     private func bootstrap() async {
+        defer { connecting = false }
         if await client.reachable() {
-            await refresh()
-            return
+            if await client.healthVersion() == LeashCopy.build {
+                await refresh()
+                return
+            }
+            try? await client.stop()
+            killStrayHelper()
+            try? await Task.sleep(nanoseconds: 250_000_000)
         }
         launchHelper()
         for _ in 0 ..< LeashMotion.bootstrapTries {
@@ -210,6 +230,20 @@ final class AppModel: ObservableObject {
             }
         }
         daemonError = LeashCopy.couldNotStart
+    }
+
+    private func killStrayHelper() {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
+        proc.arguments = ["-f", "leash serve"]
+        proc.standardOutput = FileHandle.nullDevice
+        proc.standardError = FileHandle.nullDevice
+        do {
+            try proc.run()
+            proc.waitUntilExit()
+        } catch {
+            return
+        }
     }
 
     private func launchHelper() {
@@ -253,18 +287,31 @@ final class AppModel: ObservableObject {
             notice = LeashCopy.chooseWorkFolder
             return
         }
-        guard LeashFormat.dispatchAgent(state.agents) != nil else {
+        guard let agent = LeashFormat.dispatchAgent(state.agents, prefer: selectedAgentID) else {
             notice = LeashCopy.noCLI
             return
+        }
+        if agent.id == "cursor-cli" {
+            let bin = agent.path ?? ""
+            if bin.isEmpty || bin.hasSuffix(".app") {
+                notice = LeashCopy.cursorNeedsCLI
+                return
+            }
         }
         sending = true
         defer { sending = false }
         do {
-            try await client.run(prompt: prompt, agent: nil, path: path)
+            selectAgent(agent.id)
+            try await client.run(prompt: prompt, agent: agent.id, path: path)
             promptDraft = ""
             await refresh()
         } catch {
             notice = error.localizedDescription
         }
+    }
+
+    func selectAgent(_ id: String) {
+        selectedAgentID = id
+        UserDefaults.standard.set(id, forKey: Self.agentKey)
     }
 }

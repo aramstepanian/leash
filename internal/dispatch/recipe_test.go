@@ -30,8 +30,14 @@ func TestPickPrefersOpenCode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rec.ACP || len(rec.Args) < 2 || rec.Args[0] != "run" {
-		t.Fatalf("%+v", rec)
+	if !rec.ACP || len(rec.Args) == 0 || rec.Args[len(rec.Args)-1] != "acp" {
+		t.Fatalf("want ACP recipe, got %+v", rec)
+	}
+	if len(rec.PrintArgs) < 2 || rec.PrintArgs[0] != "run" {
+		t.Fatalf("want print fallback, got %+v", rec)
+	}
+	if !rec.JSON {
+		t.Fatalf("opencode should request json: %+v", rec)
 	}
 }
 
@@ -73,6 +79,74 @@ func TestRunPrintAgent(t *testing.T) {
 	}
 	if !strings.Contains(out, "ran-ok") {
 		t.Fatalf("result %q", out)
+	}
+}
+
+func TestStripANSI(t *testing.T) {
+	raw := "\x1b[0m\n> build · nemotron\n\x1b[0m$ \x1b[0mls -la\ntotal 40\n"
+	got := stripANSI(raw)
+	if strings.Contains(got, "[0m") || strings.Contains(got, "\x1b") {
+		t.Fatalf("ansi left in %q", got)
+	}
+	if !strings.Contains(got, "ls -la") || !strings.Contains(got, "total 40") {
+		t.Fatalf("lost output: %q", got)
+	}
+	orphan := stripANSI("[0m$ [0mls -la")
+	if strings.Contains(orphan, "[0m") {
+		t.Fatalf("orphan sgr left in %q", orphan)
+	}
+}
+
+func TestPickCursorAlias(t *testing.T) {
+	home := t.TempDir()
+	bin := filepath.Join(home, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeExe(t, filepath.Join(bin, "cursor-agent"))
+	p := agents.Probe{Home: home, Path: bin}
+	got, err := Pick(p, "cursor")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ID != "cursor-cli" {
+		t.Fatalf("%+v", got)
+	}
+}
+
+func TestOpenCodeTextAndChrome(t *testing.T) {
+	jsonl := "{\"type\":\"text\",\"part\":{\"type\":\"text\",\"text\":\"Hello from the agent.\"}}\n"
+	if got := openCodeText(jsonl); got != "Hello from the agent." {
+		t.Fatalf("json text %q", got)
+	}
+	raw := "> build · nemotron-3-ultra-free\n$ ls -la\nHello! How can I help you today?\n"
+	got := extractReply(raw)
+	if strings.Contains(got, "build ·") || strings.Contains(got, "$ ls") {
+		t.Fatalf("chrome left in %q", got)
+	}
+	if !strings.Contains(got, "Hello!") {
+		t.Fatalf("lost reply %q", got)
+	}
+	tui := stripANSI("\x1b[0m\n> build · nemotron-3-ultra-free\n\x1b[0m}\nI'm opencode, an interactive CLI tool.\n")
+	got = extractReply(tui)
+	if strings.Contains(got, "[0m") || strings.Contains(got, "build ·") || got == "}" {
+		t.Fatalf("tui left in %q", got)
+	}
+	if !strings.Contains(got, "I'm opencode") {
+		t.Fatalf("lost reply %q", got)
+	}
+}
+
+func TestFindCursorCLILooksForAgent(t *testing.T) {
+	home := t.TempDir()
+	bin := filepath.Join(home, ".local", "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeExe(t, filepath.Join(bin, "agent"))
+	got := agents.FindCursorCLI(agents.Probe{Home: home, Path: "/nonexistent"})
+	if got == "" {
+		t.Fatal("expected agent binary")
 	}
 }
 

@@ -3,9 +3,11 @@ package dispatch
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 
@@ -19,6 +21,7 @@ type Job struct {
 	Prompt string
 	Agent  string
 	Root   string
+	OnText func(string)
 }
 
 // Run sends prompt to an installed CLI agent and waits until it exits.
@@ -46,20 +49,32 @@ func RunWith(ctx context.Context, job Job, p agents.Probe) (string, string, erro
 		root, _ = os.Getwd()
 	}
 	if rec.ACP {
-		out, err := oneShotACP(ctx, rec.Command, rec.Args, root, job.Prompt)
-		return found.Name, clip(out), err
+		out, err := oneShotACP(ctx, rec.Command, rec.Args, root, job.Prompt, job.OnText)
+		if err == nil && strings.TrimSpace(out) != "" {
+			return found.Name, clip(stripANSI(out)), nil
+		}
+		if len(rec.PrintArgs) == 0 {
+			if strings.TrimSpace(out) != "" {
+				return found.Name, clip(stripANSI(out)), err
+			}
+			return found.Name, "", err
+		}
 	}
-	out, err := runPrint(ctx, rec, root)
-	if err != nil && found.ACP != "" {
+	printRec := rec
+	if len(rec.PrintArgs) > 0 {
+		printRec.Args = rec.PrintArgs
+	}
+	out, err := runPrint(ctx, printRec, root)
+	if err != nil && found.ACP != "" && !rec.ACP {
 		args := strings.Fields(found.ACP)
 		if len(args) > 1 {
-			out2, err2 := oneShotACP(ctx, rec.Command, args[1:], root, job.Prompt)
+			out2, err2 := oneShotACP(ctx, rec.Command, args[1:], root, job.Prompt, job.OnText)
 			if err2 == nil {
-				return found.Name, clip(out2), nil
+				return found.Name, clip(stripANSI(out2)), nil
 			}
 		}
 	}
-	return found.Name, clip(out), err
+	return found.Name, replyFrom(rec, out), err
 }
 
 func runPrint(ctx context.Context, rec Recipe, root string) (string, error) {
@@ -68,7 +83,7 @@ func runPrint(ctx context.Context, rec Recipe, root string) (string, error) {
 	}
 	cmd := exec.CommandContext(ctx, rec.Command, rec.Args...)
 	cmd.Dir = root
-	cmd.Env = os.Environ()
+	cmd.Env = append(os.Environ(), "NO_COLOR=1", "TERM=dumb", "FORCE_COLOR=0", "CLICOLOR=0")
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
@@ -78,10 +93,108 @@ func runPrint(ctx context.Context, rec Recipe, root string) (string, error) {
 	return buf.String(), nil
 }
 
+var (
+	ansiCSI    = regexp.MustCompile(`\x1b\[[0-9;?=]*[ -/]*[@-~]`)
+	ansiOSC    = regexp.MustCompile(`\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)`)
+	ansiOther  = regexp.MustCompile(`\x1b[@-Z\\-_]`)
+	ansiOrphan = regexp.MustCompile(`\[[0-9;]{1,12}m`)
+)
+
 func clip(s string) string {
 	s = strings.TrimSpace(s)
 	if len(s) <= maxResult {
 		return s
 	}
 	return s[:maxResult] + "…"
+}
+
+func replyFrom(rec Recipe, raw string) string {
+	raw = stripANSI(raw)
+	if rec.JSON {
+		if text := openCodeText(raw); text != "" {
+			return clip(text)
+		}
+	}
+	return clip(extractReply(raw))
+}
+
+func openCodeText(raw string) string {
+	var b strings.Builder
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || !strings.HasPrefix(line, "{") {
+			continue
+		}
+		var ev struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+			Part struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"part"`
+		}
+		if json.Unmarshal([]byte(line), &ev) != nil {
+			continue
+		}
+		if ev.Type != "text" && ev.Part.Type != "text" {
+			continue
+		}
+		t := strings.TrimSpace(ev.Part.Text)
+		if t == "" {
+			t = strings.TrimSpace(ev.Text)
+		}
+		if t == "" {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(t)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func extractReply(raw string) string {
+	var lines []string
+	for _, line := range strings.Split(raw, "\n") {
+		s := strings.TrimSpace(line)
+		if s == "" {
+			if len(lines) > 0 {
+				lines = append(lines, "")
+			}
+			continue
+		}
+		if chromeLine(s) {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	return strings.TrimSpace(strings.Join(lines, "\n"))
+}
+
+func chromeLine(s string) bool {
+	switch s {
+	case "{", "}", "[", "]":
+		return true
+	}
+	if strings.HasPrefix(s, ">") || strings.HasPrefix(s, "$") {
+		return true
+	}
+	if strings.HasPrefix(s, "{") && strings.Contains(s, `"type"`) {
+		return true
+	}
+	return false
+}
+
+func stripANSI(s string) string {
+	s = strings.ReplaceAll(s, "\r", "")
+	s = ansiOSC.ReplaceAllString(s, "")
+	s = ansiCSI.ReplaceAllString(s, "")
+	s = ansiOther.ReplaceAllString(s, "")
+	s = ansiOrphan.ReplaceAllString(s, "")
+	s = strings.ReplaceAll(s, "\x1b", "")
+	for strings.Contains(s, "\n\n\n") {
+		s = strings.ReplaceAll(s, "\n\n\n", "\n\n")
+	}
+	return s
 }

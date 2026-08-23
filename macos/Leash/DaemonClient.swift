@@ -44,6 +44,25 @@ struct DaemonClient {
         }
     }
 
+    func healthVersion() async -> String? {
+        var req = URLRequest(url: base.appendingPathComponent("v1/health"))
+        req.timeoutInterval = 0.4
+        guard let (data, res) = try? await URLSession.shared.data(for: req),
+              (res as? HTTPURLResponse)?.statusCode == 200,
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else {
+            return nil
+        }
+        return obj["version"] as? String
+    }
+
+    func stop() async throws {
+        var req = try authorized("POST", "/v1/shutdown")
+        req.timeoutInterval = 2
+        let (_, res) = try await URLSession.shared.data(for: req)
+        try check(res)
+    }
+
     func state() async throws -> LeashState {
         var req = try authorized("GET", "/v1/state")
         req.timeoutInterval = 1

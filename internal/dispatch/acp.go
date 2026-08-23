@@ -11,6 +11,9 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
+
+	"github.com/leashapp/leash/internal/version"
 )
 
 type rpc struct {
@@ -22,10 +25,13 @@ type rpc struct {
 	Error   json.RawMessage `json:"error,omitempty"`
 }
 
-func oneShotACP(ctx context.Context, command string, args []string, cwd, prompt string) (string, error) {
-	cmd := exec.CommandContext(ctx, command, args...)
+func oneShotACP(ctx context.Context, command string, args []string, cwd, prompt string, onText func(string)) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	cmd := exec.Command(command, args...)
 	cmd.Dir = cwd
-	cmd.Env = os.Environ()
+	cmd.Env = append(os.Environ(), "NO_COLOR=1", "TERM=dumb", "FORCE_COLOR=0", "CLICOLOR=0")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -36,65 +42,177 @@ func oneShotACP(ctx context.Context, command string, args []string, cwd, prompt 
 		return "", err
 	}
 	var stderr strings.Builder
-	cmd.Stderr = &stderr
+	acpCtx, acpCancel := context.WithCancel(ctx)
+	defer acpCancel()
+	var fatalMu sync.Mutex
+	var fatal error
+	fail := func(err error) {
+		if err == nil {
+			return
+		}
+		fatalMu.Lock()
+		if fatal == nil {
+			fatal = err
+		}
+		fatalMu.Unlock()
+		acpCancel()
+	}
+	cmd.Stderr = &watchStderr{buf: &stderr, hit: fail}
 	if err := cmd.Start(); err != nil {
 		return "", err
 	}
-	done := make(chan error, 1)
-	go func() { done <- cmd.Wait() }()
+	waitCh := make(chan error, 1)
+	go func() {
+		waitCh <- cmd.Wait()
+		acpCancel()
+	}()
+	go func() {
+		<-acpCtx.Done()
+		killProc(cmd)
+	}()
 
 	c := &acpClient{
-		ctx:    ctx,
+		ctx:    acpCtx,
 		w:      stdin,
 		r:      bufio.NewReaderSize(stdout, 64<<10),
 		wait:   map[string]chan rpc{},
 		chunks: &strings.Builder{},
+		onText: onText,
 	}
 	go c.readLoop()
 
+	stop := func() error {
+		acpCancel()
+		_ = stdin.Close()
+		killProc(cmd)
+		select {
+		case err := <-waitCh:
+			return err
+		case <-time.After(2 * time.Second):
+			return fmt.Errorf("agent did not exit")
+		}
+	}
+
 	if _, err := c.call("initialize", map[string]any{
 		"protocolVersion": 1,
-		"clientInfo":      map[string]string{"name": "leash", "version": "0.8.0"},
+		"clientInfo":      map[string]string{"name": "leash", "title": "Leash", "version": version.String},
+		"clientCapabilities": map[string]any{
+			"fs": map[string]bool{"readTextFile": false, "writeTextFile": false},
+		},
 		"capabilities": map[string]any{
 			"fs": map[string]bool{"readTextFile": false, "writeTextFile": false},
 		},
 	}); err != nil {
-		_ = stdin.Close()
-		return "", fmt.Errorf("acp initialize: %w %s", err, stderr.String())
+		_ = stop()
+		return "", fmt.Errorf("acp initialize: %w %s", err, strings.TrimSpace(stderr.String()))
 	}
 	c.notify("initialized", map[string]any{})
 
 	raw, err := c.call("session/new", map[string]any{"cwd": cwd, "mcpServers": []any{}})
 	if err != nil {
-		_ = stdin.Close()
-		return "", fmt.Errorf("session/new: %w %s", err, stderr.String())
+		_ = stop()
+		return "", fmt.Errorf("session/new: %w %s", err, strings.TrimSpace(stderr.String()))
 	}
 	var created struct {
 		SessionID string `json:"sessionId"`
 	}
 	_ = json.Unmarshal(raw, &created)
 	if created.SessionID == "" {
-		_ = stdin.Close()
+		_ = stop()
 		return "", fmt.Errorf("session/new: no sessionId %s", string(raw))
 	}
 
-	_, err = c.call("session/prompt", map[string]any{
-		"sessionId": created.SessionID,
-		"prompt":    []map[string]string{{"type": "text", "text": prompt}},
-	})
-	_ = stdin.Close()
+	promptDone := make(chan error, 1)
+	go func() {
+		_, err := c.call("session/prompt", map[string]any{
+			"sessionId": created.SessionID,
+			"prompt":    []map[string]string{{"type": "text", "text": prompt}},
+		})
+		promptDone <- err
+	}()
+	promptErr := waitPrompt(acpCtx, c, promptDone, fail)
 	select {
-	case <-ctx.Done():
-		return c.chunks.String(), ctx.Err()
-	case waitErr := <-done:
-		if err != nil {
-			return c.chunks.String(), fmt.Errorf("session/prompt: %w %s", err, stderr.String())
-		}
-		if waitErr != nil && ctx.Err() == nil {
-			return c.chunks.String(), waitErr
-		}
-		return c.chunks.String(), nil
+	case <-time.After(250 * time.Millisecond):
+	case <-acpCtx.Done():
 	}
+	reply := strings.TrimSpace(c.text())
+	_ = stop()
+	fatalMu.Lock()
+	fatalErr := fatal
+	fatalMu.Unlock()
+	if fatalErr != nil && reply == "" {
+		return "", fatalErr
+	}
+	if reply != "" {
+		return reply, nil
+	}
+	if promptErr != nil {
+		return "", fmt.Errorf("session/prompt: %w %s", promptErr, strings.TrimSpace(stderr.String()))
+	}
+	return "", fmt.Errorf("acp: no agent message %s", strings.TrimSpace(stderr.String()))
+}
+
+func waitPrompt(ctx context.Context, c *acpClient, done <-chan error, fail func(error)) error {
+	timer := time.NewTimer(45 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case err := <-done:
+			return err
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			if strings.TrimSpace(c.text()) != "" {
+				select {
+				case err := <-done:
+					return err
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+			fail(fmt.Errorf("OpenCode didn’t reply. The default model is rate-limited — wait, or set a provider in OpenCode"))
+			select {
+			case err := <-done:
+				return err
+			case <-time.After(2 * time.Second):
+				return ctx.Err()
+			}
+		}
+	}
+}
+
+type watchStderr struct {
+	buf *strings.Builder
+	hit func(error)
+}
+
+func (w *watchStderr) Write(p []byte) (int, error) {
+	n, _ := w.buf.Write(p)
+	if err := providerErr(string(p)); err != nil && w.hit != nil {
+		w.hit(err)
+	}
+	return n, nil
+}
+
+func providerErr(s string) error {
+	low := strings.ToLower(s)
+	switch {
+	case strings.Contains(low, "rate limit"):
+		return fmt.Errorf("OpenCode is rate-limited. Wait a minute, or sign in a provider (opencode auth)")
+	case strings.Contains(low, "incorrect api key"), strings.Contains(low, "invalid api key"), strings.Contains(low, "unauthorized"):
+		return fmt.Errorf("OpenCode is missing a valid API key. Run opencode auth")
+	default:
+		return nil
+	}
+}
+
+func killProc(cmd *exec.Cmd) {
+	if cmd == nil || cmd.Process == nil {
+		return
+	}
+	pid := cmd.Process.Pid
+	_ = syscall.Kill(-pid, syscall.SIGKILL)
+	_ = cmd.Process.Kill()
 }
 
 type acpClient struct {
@@ -105,6 +223,13 @@ type acpClient struct {
 	next   int
 	wait   map[string]chan rpc
 	chunks *strings.Builder
+	onText func(string)
+}
+
+func (c *acpClient) text() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.chunks.String()
 }
 
 func (c *acpClient) call(method string, params any) (json.RawMessage, error) {
@@ -155,7 +280,21 @@ func (c *acpClient) write(body []byte) error {
 	return err
 }
 
+func (c *acpClient) failWait(err error) {
+	raw := mustJSON(map[string]any{"code": -32000, "message": err.Error()})
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for k, ch := range c.wait {
+		select {
+		case ch <- rpc{Error: raw}:
+		default:
+		}
+		delete(c.wait, k)
+	}
+}
+
 func (c *acpClient) readLoop() {
+	defer c.failWait(io.EOF)
 	for {
 		line, err := c.r.ReadBytes('\n')
 		if err != nil {
@@ -218,24 +357,59 @@ func (c *acpClient) noteUpdate(params json.RawMessage) {
 	if json.Unmarshal(wrap.Update, &u) != nil {
 		return
 	}
-	if u.SessionUpdate != "agent_message_chunk" && u.SessionUpdate != "agent_message" {
+	switch u.SessionUpdate {
+	case "agent_message_chunk", "agent_message":
+	default:
 		return
 	}
-	text := u.Text
-	if text == "" && len(u.Content) > 0 {
-		var block struct {
-			Text string `json:"text"`
-			Type string `json:"type"`
+	if u.SessionUpdate == "agent_message" {
+		c.mu.Lock()
+		have := c.chunks.Len() > 0
+		c.mu.Unlock()
+		if have {
+			return
 		}
-		_ = json.Unmarshal(u.Content, &block)
-		text = block.Text
+	}
+	text := u.Text
+	if text == "" {
+		text = contentText(u.Content)
 	}
 	if strings.TrimSpace(text) == "" {
 		return
 	}
 	c.mu.Lock()
 	c.chunks.WriteString(text)
+	all := c.chunks.String()
+	fn := c.onText
 	c.mu.Unlock()
+	if fn != nil {
+		fn(clip(stripANSI(all)))
+	}
+}
+
+func contentText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var block struct {
+		Text string `json:"text"`
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(raw, &block) == nil && strings.TrimSpace(block.Text) != "" {
+		return block.Text
+	}
+	var blocks []struct {
+		Text string `json:"text"`
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(raw, &blocks) == nil {
+		var b strings.Builder
+		for _, x := range blocks {
+			b.WriteString(x.Text)
+		}
+		return b.String()
+	}
+	return ""
 }
 
 func pickAllow(params json.RawMessage) (string, bool) {
