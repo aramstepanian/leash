@@ -30,7 +30,7 @@ func TestPickPrefersOpenCode(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !rec.ACP || len(rec.Args) == 0 || rec.Args[0] != "acp" {
+	if !rec.ACP || len(rec.Args) == 0 || rec.Args[len(rec.Args)-1] != "acp" {
 		t.Fatalf("want ACP recipe, got %+v", rec)
 	}
 	if len(rec.PrintArgs) < 2 || rec.PrintArgs[0] != "run" {

@@ -16,6 +16,7 @@ final class AppModel: ObservableObject {
     @Published var steerDraft = ""
     @Published var promptDraft = ""
     @Published var sending = false
+    @Published var connecting = true
     @Published var folder: String?
     @Published var selectedAgentID: String = UserDefaults.standard.string(forKey: AppModel.agentKey) ?? ""
 
@@ -49,6 +50,7 @@ final class AppModel: ObservableObject {
             let prevLast = state.mission?.timeline.last?.id
             state = next
             daemonError = nil
+            connecting = false
             if folder == nil || folder?.isEmpty == true, let root = next.watchRoot ?? next.folders.first, !root.isEmpty {
                 folder = root
             }
@@ -67,6 +69,7 @@ final class AppModel: ObservableObject {
                 notice = nil
             }
         } catch {
+            if connecting { return }
             state = .empty
             daemonError = error.localizedDescription
         }
@@ -208,6 +211,7 @@ final class AppModel: ObservableObject {
     }
 
     private func bootstrap() async {
+        defer { connecting = false }
         if await client.reachable() {
             if await client.healthVersion() == LeashCopy.build {
                 await refresh()

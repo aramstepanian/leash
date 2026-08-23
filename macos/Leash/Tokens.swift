@@ -29,13 +29,13 @@ enum LeashPaint {
     enum Opacity {
         static let muted: CGFloat = 0.52
         static let faint: CGFloat = 0.08
-        static let hairline: CGFloat = 0.14
+        static let hairline: CGFloat = 0.10
         static let code: CGFloat = 0.90
-        static let chipOn: CGFloat = 0.14
+        static let chipOn: CGFloat = 0.12
         static let chipOff: CGFloat = 0.05
         static let pending: CGFloat = 0.10
         static let queued: CGFloat = 0.06
-        static let statusHalo: CGFloat = 0.14
+        static let statusHalo: CGFloat = 0.10
         static let hintOnInk: CGFloat = 0.14
         static let hintOnKill: CGFloat = 0.18
         static let hintInk: CGFloat = 0.72
@@ -76,8 +76,8 @@ enum LeashSpace {
 
     static let control: CGFloat = 32
     static let action: CGFloat = 34
-    static let status: CGFloat = 28
-    static let mark: CGFloat = 14
+    static let status: CGFloat = 22
+    static let mark: CGFloat = 18
     static let icon: CGFloat = 16
     static let dot: CGFloat = 6
     static let inspectorFloor: CGFloat = 64
@@ -85,17 +85,19 @@ enum LeashSpace {
     static let emptyFloor: CGFloat = 168
 
     enum Mark {
-        static let minStroke: CGFloat = 1.4
-        static let stroke: CGFloat = 0.12
-        static let circle: CGFloat = 0.50
-        static let strap: CGFloat = 0.30
-        static let gap: CGFloat = 0.55
-        static let fillPad: CGFloat = 0.95
+        static let minStroke: CGFloat = 1.6
+        static let stroke: CGFloat = 0.16
+        static let span: CGFloat = 0.72
+        static let strap: CGFloat = 0.36
+        static let strapHeight: CGFloat = 0.24
+        static let strapLine: CGFloat = 1.15
+        static let overlap: CGFloat = 0.50
+        static let spinSweep: Double = 288
     }
 }
 
 enum LeashLayout {
-    static let menuWidth: CGFloat = 300
+    static let menuWidth: CGFloat = 320
     static let approvalWidth: CGFloat = 432
     static let approvalFloor: CGFloat = 220
     static let approvalSeedHeight: CGFloat = 240
@@ -172,6 +174,10 @@ enum LeashMotion {
     static let launchShot: TimeInterval = 0.6
     static let bootstrapTries = 20
     static let bootstrapTickNs: UInt64 = 150_000_000
+    static let spinPeriod: TimeInterval = 0.9
+    static let fastenPeriod: TimeInterval = 1.35
+    static let pulsePeriod: TimeInterval = 1.05
+    static let trackPeriod: TimeInterval = 1.15
 }
 
 enum LeashSymbol {
@@ -207,6 +213,11 @@ enum LeashCopy {
     static let fail = "Fail"
     static let tape = "Tape"
     static let working = "Working"
+    static let workingDots = "Working…"
+    static let starting = "Starting"
+    static let startingDots = "Starting…"
+    static let startingDetail = "Waiting for the local daemon"
+    static let readyDots = "Ready"
     static let done = "Done"
     static let failedLive = "Failed"
     static let steerPrompt = "Steer the agent…"
@@ -262,6 +273,10 @@ enum LeashCopy {
     static let unwatched = "Stopped watching"
     static let readyRewind = "Ready to rewind"
     static let promptPlaceholder = "What should the agent do?"
+    static let promptKicker = "Prompt"
+    static let folderKicker = "Folder"
+    static let replyKicker = "Reply"
+    static let readyHint = "Type a prompt and press Return"
     static let pickWorkFolder = "Pick a folder"
     static let chooseWorkFolder = "Choose the project folder"
     static let alreadyRunning = "Already running"
@@ -695,21 +710,16 @@ enum LeashFormat {
         return false
     }
 
-    static func dispatchTitle(offline: Bool, folder: String?, agent: AgentInfo?, job: JobInfo?) -> String {
+    static func dispatchTitle(offline: Bool, folder: String?, agent: AgentInfo?, job: JobInfo?, connecting: Bool = false) -> String {
+        if connecting { return LeashCopy.starting }
         if offline { return LeashCopy.offline }
         if folder == nil || folder?.isEmpty == true { return LeashCopy.pickWorkFolder }
         if agent == nil { return LeashCopy.noCLI }
         if let job {
             switch job.status {
             case "running":
-                if let name = job.agent, !name.isEmpty {
-                    return LeashCopy.running + LeashCopy.dot + name
-                }
-                return LeashCopy.running
+                return LeashCopy.working
             case "done":
-                if let name = job.agent, !name.isEmpty {
-                    return LeashCopy.done + LeashCopy.dot + name
-                }
                 return LeashCopy.done
             case "failed":
                 return LeashCopy.failedLive
@@ -717,10 +727,11 @@ enum LeashFormat {
                 break
             }
         }
-        return LeashCopy.idle
+        return LeashCopy.readyDots
     }
 
-    static func dispatchDetail(offlineError: String?, folder: String?, agent: AgentInfo?, job: JobInfo?) -> String {
+    static func dispatchDetail(offlineError: String?, folder: String?, agent: AgentInfo?, job: JobInfo?, connecting: Bool = false) -> String {
+        if connecting { return LeashCopy.startingDetail }
         if let offlineError, !offlineError.isEmpty { return offlineError }
         if folder == nil || folder?.isEmpty == true { return LeashCopy.chooseWorkFolder }
         if agent == nil { return LeashCopy.noCLI }
@@ -732,14 +743,12 @@ enum LeashFormat {
                 let err = plainText(job.error ?? "")
                 return err.isEmpty ? LeashCopy.failedLive : err
             case "done":
-                let result = replyPreview(job.result ?? "")
-                if result.isEmpty { return LeashCopy.done }
-                return result
+                return job.prompt
             default:
                 break
             }
         }
-        return compactPath(folder ?? "")
+        return LeashCopy.readyHint
     }
 
     static func dispatchTint(offline: Bool, folder: String?, agent: AgentInfo?, job: JobInfo?) -> Color {

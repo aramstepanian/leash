@@ -42,13 +42,25 @@ func oneShotACP(ctx context.Context, command string, args []string, cwd, prompt 
 		return "", err
 	}
 	var stderr strings.Builder
-	cmd.Stderr = &stderr
+	acpCtx, acpCancel := context.WithCancel(ctx)
+	defer acpCancel()
+	var fatalMu sync.Mutex
+	var fatal error
+	fail := func(err error) {
+		if err == nil {
+			return
+		}
+		fatalMu.Lock()
+		if fatal == nil {
+			fatal = err
+		}
+		fatalMu.Unlock()
+		acpCancel()
+	}
+	cmd.Stderr = &watchStderr{buf: &stderr, hit: fail}
 	if err := cmd.Start(); err != nil {
 		return "", err
 	}
-
-	acpCtx, acpCancel := context.WithCancel(ctx)
-	defer acpCancel()
 	waitCh := make(chan error, 1)
 	go func() {
 		waitCh <- cmd.Wait()
@@ -110,16 +122,27 @@ func oneShotACP(ctx context.Context, command string, args []string, cwd, prompt 
 		return "", fmt.Errorf("session/new: no sessionId %s", string(raw))
 	}
 
-	_, promptErr := c.call("session/prompt", map[string]any{
-		"sessionId": created.SessionID,
-		"prompt":    []map[string]string{{"type": "text", "text": prompt}},
-	})
+	promptDone := make(chan error, 1)
+	go func() {
+		_, err := c.call("session/prompt", map[string]any{
+			"sessionId": created.SessionID,
+			"prompt":    []map[string]string{{"type": "text", "text": prompt}},
+		})
+		promptDone <- err
+	}()
+	promptErr := waitPrompt(acpCtx, c, promptDone, fail)
 	select {
 	case <-time.After(250 * time.Millisecond):
 	case <-acpCtx.Done():
 	}
 	reply := strings.TrimSpace(c.text())
 	_ = stop()
+	fatalMu.Lock()
+	fatalErr := fatal
+	fatalMu.Unlock()
+	if fatalErr != nil && reply == "" {
+		return "", fatalErr
+	}
 	if reply != "" {
 		return reply, nil
 	}
@@ -127,6 +150,60 @@ func oneShotACP(ctx context.Context, command string, args []string, cwd, prompt 
 		return "", fmt.Errorf("session/prompt: %w %s", promptErr, strings.TrimSpace(stderr.String()))
 	}
 	return "", fmt.Errorf("acp: no agent message %s", strings.TrimSpace(stderr.String()))
+}
+
+func waitPrompt(ctx context.Context, c *acpClient, done <-chan error, fail func(error)) error {
+	timer := time.NewTimer(45 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case err := <-done:
+			return err
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timer.C:
+			if strings.TrimSpace(c.text()) != "" {
+				select {
+				case err := <-done:
+					return err
+				case <-ctx.Done():
+					return ctx.Err()
+				}
+			}
+			fail(fmt.Errorf("OpenCode didn’t reply. The default model is rate-limited — wait, or set a provider in OpenCode"))
+			select {
+			case err := <-done:
+				return err
+			case <-time.After(2 * time.Second):
+				return ctx.Err()
+			}
+		}
+	}
+}
+
+type watchStderr struct {
+	buf *strings.Builder
+	hit func(error)
+}
+
+func (w *watchStderr) Write(p []byte) (int, error) {
+	n, _ := w.buf.Write(p)
+	if err := providerErr(string(p)); err != nil && w.hit != nil {
+		w.hit(err)
+	}
+	return n, nil
+}
+
+func providerErr(s string) error {
+	low := strings.ToLower(s)
+	switch {
+	case strings.Contains(low, "rate limit"):
+		return fmt.Errorf("OpenCode is rate-limited. Wait a minute, or sign in a provider (opencode auth)")
+	case strings.Contains(low, "incorrect api key"), strings.Contains(low, "invalid api key"), strings.Contains(low, "unauthorized"):
+		return fmt.Errorf("OpenCode is missing a valid API key. Run opencode auth")
+	default:
+		return nil
+	}
 }
 
 func killProc(cmd *exec.Cmd) {

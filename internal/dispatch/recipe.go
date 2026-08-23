@@ -62,7 +62,7 @@ func For(f agents.Found, prompt string) (Recipe, error) {
 	case "opencode":
 		r.ACP = true
 		r.JSON = true
-		r.Args = []string{"acp"}
+		r.Args = []string{"--print-logs", "--log-level", "ERROR", "acp"}
 		r.PrintArgs = []string{"run", "--format", "json", prompt}
 	case "codex":
 		r.Args = []string{"exec", "--full-auto", prompt}

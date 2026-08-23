@@ -47,11 +47,27 @@ func TestACPInitializeFailsFast(t *testing.T) {
 	}
 }
 
+func TestACPRateLimitFailsFast(t *testing.T) {
+	t.Setenv("LEASH_ACP_FAIL", "rate")
+	bin := buildFakeACP(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	start := time.Now()
+	_, err := oneShotACP(ctx, bin, nil, t.TempDir(), "hello", nil)
+	if err == nil || !strings.Contains(err.Error(), "rate-limited") {
+		t.Fatalf("err %v", err)
+	}
+	if time.Since(start) > 2*time.Second {
+		t.Fatalf("hung: %s", time.Since(start))
+	}
+}
+
 const fakeACPSrc = `package main
 
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"os"
 )
 
@@ -70,6 +86,10 @@ func main() {
 		case "session/new":
 			reply(id, map[string]any{"sessionId": "s1"})
 		case "session/prompt":
+			if os.Getenv("LEASH_ACP_FAIL") == "rate" {
+				fmt.Fprintln(os.Stderr, "Rate limit exceeded. Please try again later.")
+				select {}
+			}
 			note("session/update", map[string]any{
 				"sessionId": "s1",
 				"update": map[string]any{
