@@ -20,6 +20,8 @@ Works with **Cursor** (app + CLI), **OpenCode**, **Claude Code**, **Codex**, **H
 4. Dangerous calls wait on a keyboard-first panel: `rm -rf`, `sudo`, `curl | sh`, force-push, `.env`, writes outside the project.
 5. Review is the files that changed. **Rewind** puts those files back. Always-allow rules and watched folders can be revoked from the menu.
 
+You can still start agents from their own apps. Or send a job from Leash: **Mission Control** has a composer when idle, and `leash run` starts one installed agent. One job at a time, same working tree. Not a chat, not a fan-out.
+
 ## Quick start (Mac)
 
 You need Go 1.22+ and Xcode 15+ (macOS 14).
@@ -34,6 +36,7 @@ Run the **Leash** target. A clip-and-strap mark appears in the menu bar.
 1. **Watch folders** — pick the repos you vibe-code in. Leash also learns a folder when an agent first runs there.
 2. Leave Leash running. It starts the local daemon for you.
 3. Use Cursor, OpenCode, `claude`, or `codex` as usual — even several at once, in several folders.
+   Or send a job from Mission Control / `leash run "fix the login"`.
    Point an ACP client at `leash acp cursor` (or `opencode` / `hermes` / `grok`) when the agent has no hook file.
 4. When something scary is about to run, the panel appears.
    - **Kill / interrupt** — Esc
@@ -59,6 +62,9 @@ make leash
 ./bin/leash serve          # in one terminal
 ./bin/leash install
 ./bin/leash watch .
+./bin/leash run "fix the login"
+./bin/leash run --agent claude --fallback "fix the login"
+./bin/leash run --list
 ./bin/leash demo           # blocks until you decide
 # other terminal:
 ./bin/leash status
@@ -70,6 +76,20 @@ make leash
 ```
 
 If the daemon is down, hooks **fail open** so agents keep working. `leash acp` also allows.
+
+## Send a job
+
+`leash run` starts **one** installed agent with a task. Auto-pick prefers Claude, then Codex, OpenCode, then ACP agents (Cursor CLI, Hermes, Grok). The Cursor app is not spawnable — use `cursor-agent`.
+
+```bash
+leash run "fix the login"
+leash run --agent claude "fix the login"
+leash run --agent claude --fallback "fix the login"   # if Claude is missing, try the next one
+```
+
+The daemon owns the process. Mission Control shows the job. **Cut** / `leash interrupt` kills it. Steer still injects into the next tool; this is not a second composer.
+
+It will not start a second job while one is running. It does not fan out onto the same checkout.
 
 ## Agents
 
@@ -109,7 +129,8 @@ internal/install/    Cursor, Claude, Codex, OpenCode wiring
 docs/INTEGRATION.md  protocol for any other agent
 macos/Leash/         SwiftUI menu bar + approval panel
 internal/agents/     which CLIs and hook files are on this Mac
-internal/acp/        ACP permission socket (not a chat client)
+internal/dispatch/   pick and start one installed agent
+internal/acp/        ACP permission socket + one-shot host
 ```
 
 ## 15-second clip

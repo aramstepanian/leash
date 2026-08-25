@@ -144,6 +144,21 @@ func hasToolAfterPlan(events []Event) bool {
 	return false
 }
 
+func (l *Log) Reset() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.events = nil
+	l.live = nil
+	l.failed = nil
+	l.goal = ""
+	l.title = ""
+	l.agent = ""
+	l.root = ""
+	l.steer = ""
+	l.interrupt = false
+	l.lastAct = time.Time{}
+}
+
 func (l *Log) SetSteer(text string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()

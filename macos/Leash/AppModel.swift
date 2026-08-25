@@ -14,6 +14,9 @@ final class AppModel: ObservableObject {
     @Published var connecting = true
     @Published var selectedEventID: String?
     @Published var steerDraft = ""
+    @Published var jobDraft = ""
+    @Published var jobAgentID = ""
+    @Published var sendingJob = false
 
     private var client = DaemonClient()
     private var timer: Timer?
@@ -45,7 +48,7 @@ final class AppModel: ObservableObject {
             let next = try await client.state()
             let prevLast = state.mission?.timeline.last?.id
             let appeared = next.pending != nil && next.pending?.id != lastPendingID
-            let missionLive = LeashFormat.missionLive(phase: next.mission?.phase, pending: next.pending != nil)
+            let missionLive = LeashFormat.missionLive(phase: next.mission?.phase, pending: next.pending != nil, jobActive: next.job?.isActive == true)
             state = next
             daemonError = nil
             connecting = false
@@ -136,6 +139,31 @@ final class AppModel: ObservableObject {
     func skipFail() async {
         do {
             try await client.skip()
+            await refresh()
+        } catch {
+            daemonError = error.localizedDescription
+        }
+    }
+
+    func sendJob() async {
+        let text = jobDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        if state.folders.isEmpty {
+            pickFolder()
+            return
+        }
+        sendingJob = true
+        defer { sendingJob = false }
+        do {
+            try await client.run(
+                task: text,
+                agent: jobAgentID,
+                cwd: state.folders.first ?? "",
+                fallback: jobAgentID.isEmpty
+            )
+            jobDraft = ""
+            notice = LeashCopy.jobSent
+            openMission()
             await refresh()
         } catch {
             daemonError = error.localizedDescription

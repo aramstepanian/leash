@@ -13,6 +13,7 @@ struct LeashState: Codable, Equatable {
     var port: Int?
     var mission: MissionInfo?
     var agents: [AgentInfo]?
+    var job: JobInfo?
 
     static let empty = LeashState(
         status: "offline",
@@ -26,7 +27,8 @@ struct LeashState: Codable, Equatable {
         alwaysAllow: [],
         port: nil,
         mission: nil,
-        agents: nil
+        agents: nil,
+        job: nil
     )
 
     var folders: [String] {
@@ -139,4 +141,21 @@ struct AgentInfo: Codable, Equatable, Identifiable {
     var door: String
     var path: String?
     var acp: String?
+
+    var spawnable: Bool { installed && id != "cursor" }
+}
+
+struct JobInfo: Codable, Equatable, Identifiable {
+    var id: String
+    var task: String
+    var agent: String
+    var agentId: String?
+    var cwd: String?
+    var status: String
+    var error: String?
+    var started: Date?
+    var ended: Date?
+    var fallbackFrom: String?
+
+    var isActive: Bool { status == "starting" || status == "running" }
 }

@@ -23,7 +23,7 @@ import (
 )
 
 const (
-	version     = "0.7.0"
+	version     = "0.8.0"
 	maxHookBody = 1 << 20
 )
 
@@ -38,6 +38,8 @@ func main() {
 		err = cmdServe()
 	case "hook":
 		err = cmdHook()
+	case "run":
+		err = cmdRun()
 	case "undo":
 		err = cmdUndo()
 	case "install":
@@ -84,6 +86,8 @@ func usage() {
 	fmt.Fprint(os.Stderr, `Leash — seatbelt + mission control for coding agents
 
   leash serve              Start the local daemon (127.0.0.1)
+  leash run TASK           Start one installed agent with a job
+  leash run --list         Show which agents Leash can spawn
   leash hook               Called by any hooked agent (reads stdin JSON)
   leash install            Wire Cursor, Claude Code, Codex, OpenCode
   leash uninstall          Remove those hooks / plugin
@@ -292,6 +296,15 @@ func cmdStatus() error {
 			fmt.Printf("goal:    %s\n", st.Mission.Goal)
 		}
 	}
+	if st.Job != nil {
+		fmt.Printf("job:     %s  %s  %s\n", st.Job.Status, st.Job.Agent, st.Job.Task)
+		if st.Job.FallbackFrom != "" {
+			fmt.Printf("         fallback from %s\n", st.Job.FallbackFrom)
+		}
+		if st.Job.Error != "" {
+			fmt.Printf("         %s\n", st.Job.Error)
+		}
+	}
 	if live := st.Mission.Live; live != nil {
 		label := live.Outcome
 		if label == "" {
@@ -414,8 +427,8 @@ func cmdACP() error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	gate := acp.DaemonGate(cfg.Port, cfg.Token)
-	notify := acp.DaemonNotify(cfg.Port, cfg.Token)
+	gate := daemonGate(cfg.Port, cfg.Token)
+	notify := daemonNotify(cfg.Port, cfg.Token)
 	fmt.Fprintf(os.Stderr, "leash acp: %s %s\n", launch.Command, strings.Join(launch.Args, " "))
 	return acp.RunStdio(ctx, launch, gate, notify)
 }

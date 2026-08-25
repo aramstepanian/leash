@@ -1,17 +1,16 @@
-package acp
+package main
 
 import (
 	"context"
 	"encoding/json"
 	"time"
 
+	"github.com/leashapp/leash/internal/acp"
 	"github.com/leashapp/leash/internal/hookfmt"
 	"github.com/leashapp/leash/internal/server"
 )
 
-// DaemonGate posts a permission through the local Leash daemon.
-// If the daemon is down, it allows (fail open, same as hooks).
-func DaemonGate(port int, token string) Gate {
+func daemonGate(port int, token string) acp.Gate {
 	return func(ctx context.Context, ev hookfmt.Event) hookfmt.Decision {
 		if token == "" || port == 0 || !server.DaemonRunning(port) {
 			return hookfmt.DecisionAllow
@@ -49,8 +48,7 @@ func DaemonGate(port int, token string) Gate {
 	}
 }
 
-// DaemonNotify sends plan / post-tool events without blocking the ACP stream.
-func DaemonNotify(port int, token string) Notify {
+func daemonNotify(port int, token string) acp.Notify {
 	return func(ev hookfmt.Event) {
 		if token == "" || port == 0 || !server.DaemonRunning(port) {
 			return

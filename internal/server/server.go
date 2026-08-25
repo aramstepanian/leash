@@ -53,6 +53,9 @@ type Server struct {
 	censusMu sync.Mutex
 	census   []agents.Found
 	censusAt time.Time
+
+	job       *Job
+	jobCancel context.CancelFunc
 }
 
 type Pending struct {
@@ -91,6 +94,7 @@ type State struct {
 	Port        int              `json:"port"`
 	Mission     mission.Snapshot `json:"mission"`
 	Agents      []agents.Found   `json:"agents"`
+	Job         *Job             `json:"job,omitempty"`
 }
 
 func New(cfg config.File) *Server {
@@ -140,6 +144,7 @@ func (s *Server) ListenAndServe() error {
 	mux.HandleFunc("POST /v1/retry", s.auth(s.handleRetry))
 	mux.HandleFunc("POST /v1/skip", s.auth(s.handleSkip))
 	mux.HandleFunc("POST /v1/always", s.auth(s.handleAlways))
+	mux.HandleFunc("POST /v1/run", s.auth(s.handleRun))
 	srv := &http.Server{
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
@@ -224,6 +229,7 @@ func (s *Server) Snapshot() State {
 		AlwaysAllow: s.Cfg.AlwaysAllow,
 		Port:        s.Cfg.Port,
 		Agents:      s.agentCensus(),
+		Job:         s.snapshotJob(),
 	}
 	if len(st.WatchRoots) == 0 && st.WatchRoot != "" {
 		st.WatchRoots = []string{st.WatchRoot}
@@ -266,6 +272,9 @@ func (s *Server) Snapshot() State {
 	}
 	if st.Mission.Phase == "failed" {
 		st.Status = "failed"
+	}
+	if st.Job != nil && st.Job.Active() && st.Status == "idle" {
+		st.Status = "watching"
 	}
 	return st
 }
