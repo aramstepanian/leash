@@ -582,6 +582,55 @@ struct LeashSteerBar: View {
     }
 }
 
+struct LeashJobBar: View {
+    @Binding var text: String
+    @Binding var agentID: String
+    var agents: [AgentInfo]
+    var sending: Bool
+    var onRun: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: LeashSpace.sm) {
+            HStack(spacing: LeashSpace.sm) {
+                agentChip("", LeashCopy.autoAgent)
+                ForEach(agents) { agent in
+                    agentChip(agent.id, agent.name)
+                }
+            }
+            HStack(spacing: LeashSpace.md) {
+                LeashField(placeholder: placeholder, text: $text, onSubmit: onRun)
+                LeashButton(
+                    title: sending ? LeashCopy.sending : LeashCopy.run,
+                    hint: LeashCopy.hintRun,
+                    action: .allow,
+                    size: .control,
+                    disabled: sending || !canRun,
+                    run: onRun
+                )
+            }
+        }
+    }
+
+    private var canRun: Bool {
+        !agents.isEmpty && !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var placeholder: String {
+        if agents.isEmpty { return LeashCopy.noSpawn }
+        return LeashCopy.jobPrompt
+    }
+
+    private func agentChip(_ id: String, _ title: String) -> some View {
+        Button {
+            agentID = id
+        } label: {
+            LeashChip(title: title, tint: LeashPaint.steel, on: agentID == id)
+        }
+        .buttonStyle(.plain)
+        .disabled(sending)
+    }
+}
+
 struct LeashTapeList: View {
     var events: [TimelineEvent]
     @Binding var selectedID: String?

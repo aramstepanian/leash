@@ -7,6 +7,10 @@ func TestPhasePlanActReview(t *testing.T) {
 	if log.Snapshot(false, false).Phase != "idle" {
 		t.Fatal(log.Snapshot(false, false).Phase)
 	}
+	log.Reset()
+	if log.Snapshot(false, false).Phase != "idle" {
+		t.Fatal("reset")
+	}
 	log.Append(Event{Kind: "plan", Title: "Fix auth", Detail: "read then edit", Root: "/proj"})
 	if got := log.Snapshot(false, false).Phase; got != "plan" {
 		t.Fatalf("after plan: %s", got)

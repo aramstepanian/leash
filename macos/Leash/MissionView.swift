@@ -26,14 +26,25 @@ struct MissionView: View {
                 )
                 .padding(.top, LeashSpace.xl)
             }
-            LeashSteerBar(
-                text: $app.steerDraft,
-                canRewind: app.state.burst != nil,
-                onSteer: { Task { await app.steer() } },
-                onCut: { Task { await app.interrupt() } },
-                onRewind: { Task { await app.undo() } }
-            )
-            .padding(.top, LeashSpace.xl)
+            if showSteer {
+                LeashSteerBar(
+                    text: $app.steerDraft,
+                    canRewind: app.state.burst != nil,
+                    onSteer: { Task { await app.steer() } },
+                    onCut: { Task { await app.interrupt() } },
+                    onRewind: { Task { await app.undo() } }
+                )
+                .padding(.top, LeashSpace.xl)
+            } else {
+                LeashJobBar(
+                    text: $app.jobDraft,
+                    agentID: $app.jobAgentID,
+                    agents: LeashFormat.spawnable(app.state.agents),
+                    sending: app.sendingJob,
+                    onRun: { Task { await app.sendJob() } }
+                )
+                .padding(.top, LeashSpace.xl)
+            }
             Hairline().padding(.vertical, LeashSpace.lg)
             HStack(alignment: .top, spacing: LeashSpace.xxl) {
                 LeashTapeList(events: mission?.timeline ?? [], selectedID: $app.selectedEventID)
@@ -54,6 +65,14 @@ struct MissionView: View {
     private var mission: MissionInfo? { app.state.mission }
     private var phase: String { mission?.phase ?? MissionPhase.idle.rawValue }
 
+    private var showSteer: Bool {
+        app.state.job?.isActive == true
+            || app.state.pending != nil
+            || mission?.live != nil
+            || MissionPhase(phase) == .act
+            || MissionPhase(phase) == .failed
+    }
+
     private var selectedEvent: TimelineEvent? {
         (mission?.timeline ?? []).first { $0.id == app.selectedEventID } ?? mission?.timeline.last
     }
@@ -63,7 +82,7 @@ struct MissionView: View {
             Group {
                 if app.connecting {
                     LeashLoader(mode: .fasten, size: .badge, tint: MissionPhase.headerTint(phase: phase, waiting: app.state.waitingCount))
-                } else if LeashFormat.missionLive(phase: phase, pending: app.state.pending != nil) && app.state.waitingCount == 0 {
+                } else if LeashFormat.missionLive(phase: phase, pending: app.state.pending != nil, jobActive: app.state.job?.isActive == true) && app.state.waitingCount == 0 {
                     LeashLoader(mode: .spin, size: .badge, tint: MissionPhase.headerTint(phase: phase, waiting: app.state.waitingCount))
                 } else if app.state.waitingCount > 0 {
                     LeashLoader(mode: .pulse, size: .badge, tint: MissionPhase.headerTint(phase: phase, waiting: app.state.waitingCount))
@@ -81,6 +100,8 @@ struct MissionView: View {
                 .foregroundStyle(LeashPaint.ink)
                 .lineLimit(1)
             if let agent = mission?.agent, !agent.isEmpty {
+                LeashMono(text: agent)
+            } else if let agent = app.state.job?.agent, !agent.isEmpty {
                 LeashMono(text: agent)
             }
             Spacer(minLength: LeashSpace.md)

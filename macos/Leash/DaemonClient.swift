@@ -108,6 +108,17 @@ struct DaemonClient {
         try check(res)
     }
 
+    func run(task: String, agent: String, cwd: String, fallback: Bool) async throws {
+        var req = try authorized("POST", "/v1/run")
+        var body: [String: Any] = ["task": task, "fallback": fallback]
+        if !agent.isEmpty { body["agent"] = agent }
+        if !cwd.isEmpty { body["cwd"] = cwd }
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        req.timeoutInterval = 10
+        let (_, res) = try await URLSession.shared.data(for: req)
+        try check(res)
+    }
+
     func unwatch(_ path: String) async throws {
         try await watch(path, remove: true)
     }

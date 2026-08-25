@@ -66,16 +66,19 @@ Mission Control also accepts:
 
 `leash install` already wires post-tool hooks for Cursor, Claude, and OpenCode so the inspector can show args, result, and duration. Custom agents should send `post_tool` after the call, not only `pre_tool`.
 
-Steer / interrupt / retry are HTTP:
+Steer / interrupt / retry / run are HTTP:
 
 ```
 POST /v1/steer       { "text": "use bun, not npm" }
 POST /v1/interrupt   { "text": "stop" }
 POST /v1/retry       {}
 POST /v1/skip        {}
+POST /v1/run         { "task": "fix the login", "agent": "claude", "cwd": "/repo", "fallback": false }
 ```
 
-A pending steer is injected as additional context on the next tool (Claude `additionalContext`, Cursor `agent_message`). Interrupt denies the current or next tool. Retry writes a steer note from the last tool error. None of this runs a second agent.
+`POST /v1/run` starts **one** installed agent (CLI print mode or a tiny ACP host). `agent` is optional (auto-pick). `fallback` tries the next installed agent if the named one is missing. One job at a time; a second `run` returns 409. Interrupt kills the spawned process as well as the current/next tool.
+
+A pending steer is injected as additional context on the next tool (Claude `additionalContext`, Cursor `agent_message`). Interrupt denies the current or next tool and stops a Leash-started job. Retry writes a steer note from the last tool error. Steer/retry do not spawn a second agent.
 
 **Always** is scoped to the project folder Leash matched for `cwd`. A rule saved in one repo does not silently allow the same command in another. Older rules with no `root` still match everywhere. Revoke from the Mac menu or `leash always --remove N`.
 

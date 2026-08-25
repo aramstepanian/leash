@@ -14,7 +14,7 @@ struct LeashApp: App {
             LeashMenuBarLabel(
                 mode: LeashMenuMode.resolve(
                     waiting: app.state.waitingCount,
-                    working: LeashFormat.missionLive(phase: app.state.mission?.phase, pending: app.state.pending != nil) && app.state.waitingCount == 0,
+                    working: LeashFormat.missionLive(phase: app.state.mission?.phase, pending: app.state.pending != nil, jobActive: app.state.job?.isActive == true) && app.state.waitingCount == 0,
                     watching: DaemonStatus(app.state.status) == .watching,
                     offline: app.daemonError != nil,
                     connecting: app.connecting

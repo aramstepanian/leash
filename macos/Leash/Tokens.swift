@@ -189,6 +189,7 @@ enum LeashSymbol {
     static let chevron = "chevron.right"
     static let alwaysList = "minus.circle"
     static let addFolder = "plus"
+    static let send = "paperplane"
 }
 
 enum LeashCopy {
@@ -206,7 +207,7 @@ enum LeashCopy {
     static let offline = "Offline"
     static let starting = "Starting"
     static let startingDetail = "Waiting for the local daemon"
-    static let watchingHint = "Watching for an agent"
+    static let watchingHint = "Send a job, or keep using an agent as usual"
     static let sending = "Sending"
     static let foldersKicker = "Folders"
     static let plan = "Plan"
@@ -218,6 +219,12 @@ enum LeashCopy {
     static let done = "Done"
     static let failedLive = "Failed"
     static let steerPrompt = "Steer the agent…"
+    static let jobPrompt = "Send a job…"
+    static let run = "Run"
+    static let autoAgent = "Auto"
+    static let sendJob = "Send a job"
+    static let jobSent = "Job sent"
+    static let noSpawn = "No spawnable agent on this Mac"
     static let noJob = "No job."
     static let emptyTape = "Nothing happened yet."
     static let caughtUp = "Caught up"
@@ -239,6 +246,7 @@ enum LeashCopy {
     static let hintUndo = "⌘Z"
     static let hintRetry = "⌘R"
     static let hintSkip = "⌘."
+    static let hintRun = "↩"
     static let missionMenu = "Plan · act · review"
     static let pickFolder = "Pick a folder to protect"
     static let chooseFolders = "Choose the project folders"
@@ -545,6 +553,10 @@ enum LeashFormat {
         return "off"
     }
 
+    static func spawnable(_ agents: [AgentInfo]?) -> [AgentInfo] {
+        (agents ?? []).filter(\.spawnable)
+    }
+
     static func undoSubtitle(_ burst: BurstInfo?) -> String {
         guard let burst else { return LeashCopy.nothingToRestore }
         let names = burst.files.prefix(3).map { folderName($0) }
@@ -597,8 +609,8 @@ enum LeashFormat {
         waiting > 0 || DaemonStatus(status) == .watching
     }
 
-    static func missionLive(phase: String?, pending: Bool) -> Bool {
-        pending || MissionPhase(phase).isLive
+    static func missionLive(phase: String?, pending: Bool, jobActive: Bool = false) -> Bool {
+        pending || MissionPhase(phase).isLive || jobActive
     }
 
     static func headerMarkFilled(phase: String, waiting: Int) -> Bool {

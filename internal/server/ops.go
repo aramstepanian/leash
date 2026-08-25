@@ -52,9 +52,10 @@ func (s *Server) handleInterrupt(w http.ResponseWriter, r *http.Request) {
 		id = p.ID
 	}
 	s.mu.Unlock()
+	stopped := s.StopJob(firstNonEmpty(text, "operator interrupt"))
 	if id != "" {
 		_ = s.Resolve(id, hookfmt.DecisionKill)
-	} else {
+	} else if !stopped {
 		s.mission.Append(mission.Event{
 			ID:     newID(),
 			Kind:   "interrupt",

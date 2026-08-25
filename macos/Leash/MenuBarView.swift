@@ -14,7 +14,7 @@ struct MenuBarView: View {
                 activity: LeashFormat.statusActivity(
                     connecting: app.connecting,
                     waiting: app.state.waitingCount,
-                    working: LeashFormat.missionLive(phase: app.state.mission?.phase, pending: app.state.pending != nil) && app.state.waitingCount == 0
+                    working: LeashFormat.missionLive(phase: app.state.mission?.phase, pending: app.state.pending != nil, jobActive: app.state.job?.isActive == true) && app.state.waitingCount == 0
                 )
             )
             Hairline()
@@ -66,6 +66,14 @@ struct MenuBarView: View {
             LeashMenuRow(title: LeashCopy.mission, subtitle: LeashFormat.missionSubtitle(phase: app.state.phase, title: app.state.mission?.title), symbol: LeashSymbol.mission) {
                 app.openMission()
             }
+            LeashMenuRow(
+                title: LeashCopy.sendJob,
+                subtitle: sendSubtitle,
+                symbol: LeashSymbol.send,
+                disabled: app.state.job?.isActive == true
+            ) {
+                app.openMission()
+            }
 
             folderRows
             alwaysRows
@@ -97,6 +105,15 @@ struct MenuBarView: View {
         .frame(width: LeashLayout.menuWidth)
         .leashChrome(LeashChrome.menu)
         .onAppear { app.start() }
+    }
+
+    private var sendSubtitle: String {
+        if app.state.job?.isActive == true {
+            return app.state.job?.agent ?? LeashCopy.working
+        }
+        let found = LeashFormat.spawnable(app.state.agents)
+        if found.isEmpty { return LeashCopy.noSpawn }
+        return found.map(\.name).joined(separator: LeashCopy.dot)
     }
 
     @ViewBuilder
